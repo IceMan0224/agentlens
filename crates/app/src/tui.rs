@@ -190,8 +190,19 @@ impl App {
     pub fn apply(&mut self, snapshot: Snapshot) {
         let model = Model::build(snapshot, &self.catalog);
         self.history.update(&model);
+        // The lists are rebuilt and re-sorted every refresh: keep the cursor on the same row.
+        let cleanup_key = |c: &Candidate| (c.kind, c.root_pid);
+        let ssh_key = |c: &SshConn| (c.pid, c.remote.clone(), c.local.clone());
+        let was_candidate = self.candidates.get(self.selected[1]).map(cleanup_key);
+        let was_ssh = self.ssh.get(self.selected[2]).map(ssh_key);
         self.candidates = candidates(&model, &self.history, self.rules.idle_minutes);
         self.ssh = net::ssh_connections(&model, &self.catalog, &self.ssh_config);
+        if let Some(i) = was_candidate.and_then(|k| self.candidates.iter().position(|c| cleanup_key(c) == k)) {
+            self.selected[1] = i;
+        }
+        if let Some(i) = was_ssh.and_then(|k| self.ssh.iter().position(|c| ssh_key(c) == k)) {
+            self.selected[2] = i;
+        }
 
         // Pre-mark new eligible candidates and announce them; keep the user's choices otherwise.
         let mut fresh = Vec::new();
@@ -245,6 +256,7 @@ impl App {
         let Some(m) = self.model.as_ref() else {
             return Vec::new();
         };
+        let was_selected = self.items.get(self.selected[0]).cloned();
         let lang = self.lang();
         let mut items = Vec::new();
         let mut rows = Vec::new();
@@ -382,6 +394,10 @@ impl App {
                     }
                 }
             }
+        }
+        // Rows are re-sorted every refresh: keep the cursor on the same item.
+        if let Some(i) = was_selected.and_then(|was| items.iter().position(|i| *i == was)) {
+            self.selected[0] = i;
         }
         self.items = items;
         rows
@@ -972,14 +988,7 @@ impl App {
             "전용 메모리 약 {freed} 확보 · 연결 {conns}개 끊김"
         )));
         if c.refusals.is_empty() {
-            lines.push(
-                Line::from(t(
-                    lang,
-                    "y / enter: end   n / esc: cancel",
-                    "y / enter: 종료   n / esc: 취소",
-                ))
-                .fg(Color::Yellow),
-            );
+            lines.push(Line::from(t(lang, "y: end   n / esc: cancel", "y: 종료   n / esc: 취소")).fg(Color::Yellow));
         } else {
             for r in &c.refusals {
                 let r = phrase(lang, r);
@@ -1075,9 +1084,11 @@ impl App {
 
     fn on_key(&mut self, k: KeyEvent) {
         if let Some(c) = &self.confirm {
+            // Only `y` confirms: Enter also opens this dialog, so a double-tap or a repeating
+            // Enter would end processes nobody confirmed.
             match k.code {
-                KeyCode::Char('y') | KeyCode::Enter if c.refusals.is_empty() => self.run_confirmed(),
-                KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter => self.confirm = None,
+                KeyCode::Char('y') if c.refusals.is_empty() => self.run_confirmed(),
+                KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => self.confirm = None,
                 _ => {}
             }
             return;
@@ -1249,7 +1260,7 @@ impl App {
         );
         let pid = c.pid;
         let Some(m) = self.model.as_ref() else { return };
-        let plan = actions::disconnect_plan(m, pid);
+        let plan = actions::disconnect_plan(m, &self.catalog, pid);
         self.ask_plan(title, plan);
     }
 
@@ -1853,6 +1864,41 @@ mod tests {
         key(&mut app, KeyCode::Esc);
         assert!(app.confirm.is_none());
         assert!(!app.quit);
+    }
+
+    #[test]
+    fn enter_opens_the_cleanup_dialog_but_never_confirms_it() {
+        let mut app = app();
+        key(&mut app, KeyCode::Char('2'));
+        screen(&mut app);
+        assert!(!app.candidates.is_empty());
+        // A double-tap, or Enter repeating while held.
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Enter);
+        assert!(app.confirm.is_some(), "still waiting for y");
+        key(&mut app, KeyCode::Esc);
+        assert!(app.confirm.is_none());
+    }
+
+    #[test]
+    fn cleanup_cursor_follows_its_row_across_refreshes() {
+        let fixture = || -> Snapshot {
+            serde_json::from_str(include_str!("../../core/tests/fixtures/orca_2026-10-29.json")).unwrap()
+        };
+        let mut app = App::new(Rules::default(), Vec::new());
+        app.apply(fixture());
+        app.selected[1] = app.candidates.len() - 1;
+        let picked = app.candidates[app.selected[1]].root_pid;
+        // A new orphan with a lower PID is listed before the picked row.
+        let mut next = fixture();
+        let mut stray = next.processes[0].clone();
+        (stray.pid, stray.ppid, stray.name) = (4, Some(3_999_999), "node.exe".into());
+        stray.cmd = vec!["node".into(), "server.js".into()];
+        next.processes.push(stray);
+        app.apply(next);
+        assert!(app.candidates.iter().any(|c| c.root_pid == 4));
+        assert_eq!(app.candidates[app.selected[1]].root_pid, picked);
     }
 
     #[test]

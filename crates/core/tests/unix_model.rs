@@ -206,8 +206,77 @@ fn inbound_ssh_session_can_be_disconnected() {
     use agentlens_core::actions::{disconnect_plan, plan, refusals};
     let catalog = Catalog::builtin();
     // Disconnecting ends the login's own sshd-session...
-    let refused = refusals(&disconnect_plan(&m, 310), &m, &catalog, 999);
+    let refused = refusals(&disconnect_plan(&m, &catalog, 310), &m, &catalog, 999);
     assert!(refused.is_empty(), "{refused:?}");
     // ...but host processes stay protected from ordinary tree kills.
     assert!(!refusals(&plan(&m, &[310]), &m, &catalog, 999).is_empty());
+}
+
+#[test]
+fn wsl_session_relays_named_init_are_not_reapers() {
+    // WSL: each shell's parent is a per-session `/init` relay, not PID 1.
+    let m = build(vec![
+        proc(1, 0, "/init", &["/init"]),
+        proc(10, 1, "/init", &["/init"]),
+        proc(11, 10, "/init", &["/init"]),
+        proc(12, 11, "/usr/bin/bash", &["-bash"]),
+        proc(13, 12, "/home/me/.local/bin/claude", &["claude"]),
+    ]);
+    assert!(m.orphans.is_empty(), "{:?}", m.orphans);
+    let g = m
+        .groups
+        .iter()
+        .find(|g| g.kind == GroupKind::Standalone)
+        .expect("terminal group");
+    assert_eq!(g.tabs[0].sessions[0].root_pid, 13);
+}
+
+#[test]
+fn vscode_remote_server_is_a_host() {
+    let server = "/home/me/.vscode-server/cli/servers/Stable-abc/server/node";
+    let m = build(vec![
+        proc(1, 0, "/usr/lib/systemd/systemd", &["/sbin/init"]),
+        proc(100, 1, server, &["node", "server-main.js"]),
+        proc(110, 100, server, &["node", "ptyHost.js"]),
+        proc(120, 110, "/usr/bin/bash", &["-bash"]),
+        proc(130, 120, "/home/me/.local/bin/claude", &["claude"]),
+    ]);
+    assert!(m.orphans.is_empty(), "{:?}", m.orphans);
+    assert_eq!(group(&m, "vscode").tabs[0].sessions[0].root_pid, 130);
+}
+
+#[test]
+fn adopted_app_with_an_mcp_child_is_not_an_orphan() {
+    // A desktop MCP client the catalog does not know, started by launchd.
+    let m = build(vec![
+        proc(1, 0, "/sbin/launchd", &[]),
+        proc(100, 1, "/Applications/Raycast.app/Contents/MacOS/Raycast", &[]),
+        proc(
+            110,
+            100,
+            "/opt/homebrew/bin/node",
+            &["node", "/x/node_modules/@modelcontextprotocol/server-fs/dist/index.js"],
+        ),
+    ]);
+    assert!(m.orphans.is_empty(), "{:?}", m.orphans);
+}
+
+#[test]
+fn disconnect_ends_privsep_sshd_sessions_but_no_other_host() {
+    use agentlens_core::actions::{disconnect_plan, refusals};
+    let catalog = Catalog::builtin();
+    // The monitor owns the socket; its unprivileged child is an sshd-session too.
+    let m = build(vec![
+        proc(1, 0, "/sbin/launchd", &[]),
+        proc(300, 1, "/usr/sbin/sshd", &["sshd"]),
+        proc(310, 300, "/usr/libexec/sshd-session", &["sshd-session: me [priv]"]),
+        proc(311, 310, "/usr/libexec/sshd-session", &["sshd-session: me@ttys001"]),
+        proc(320, 311, "/bin/zsh", &["-zsh"]),
+        // A terminal with a built-in SSH client owns its connection itself.
+        proc(400, 1, "/Applications/Tabby.app/Contents/MacOS/Tabby", &[]),
+    ]);
+    let refused = refusals(&disconnect_plan(&m, &catalog, 310), &m, &catalog, 999);
+    assert!(refused.is_empty(), "{refused:?}");
+    let refused = refusals(&disconnect_plan(&m, &catalog, 400), &m, &catalog, 999);
+    assert!(!refused.is_empty(), "a host is never ended to drop a connection");
 }

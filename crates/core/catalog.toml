@@ -24,8 +24,10 @@ system = [
     # macOS and Linux
     "kernel_task", "launchd", "systemd", "init", "kthreadd", "windowserver", "loginwindow",
 ]
-# Adopt orphans on Unix: a process whose parent exits is re-parented to one of these.
-reapers = ["launchd", "systemd", "init"]
+# Adopt orphans on Unix besides PID 1 (launchd, init or systemd), which always does: a process
+# whose parent exits is re-parented to one of these subreapers (`systemd --user`). Matched by
+# name, so only names that nothing else uses: WSL runs a non-adopting `init` per session.
+reapers = ["systemd"]
 # Executables under these never are agents, even when a name collides with a short command.
 system_dirs = ["c:/windows/", "/system/", "/usr/libexec/", "/usr/sbin/", "/sbin/"]
 browsers = ["chrome", "msedge", "chromium", "headless_shell", "chrome-headless-shell"]
@@ -39,9 +41,12 @@ session_flags = ["--resume", "-r", "--session", "--session-id", "resume"]
 
 [ssh]
 clients = ["ssh", "plink", "putty", "sftp", "scp"]
+# Clients that take PuTTY's whole-word options (`-pw secret`, `-load session`), not OpenSSH's.
+putty = ["plink", "putty"]
 # Inbound logins; newer OpenSSH (and macOS) hand each one to an `sshd-session` process.
 servers = ["sshd", "sshd-session"]
-# Ports from ~/.ssh/config are added to these.
+# Any process's connection to one of these is SSH. Ports from ~/.ssh/config count only for
+# the clients and servers above: a `Port 443` there must not make every HTTPS connection SSH.
 ports = [22]
 
 [providers]
@@ -341,19 +346,24 @@ path = ["/anthropicclaude/", "/claude.app/"]
 id = "vscode"
 name = "VS Code"
 exe = ["code", "code - insiders"]
-path = ["/visual studio code.app/", "/share/code/"]
+# Remote servers (Remote-SSH, WSL, code-server) run their own node; agents in their terminals
+# are children of it. Only the server's own directories: extensions bring agent binaries.
+path = [
+    "/visual studio code.app/", "/share/code/", "/.vscode-server/bin/", "/.vscode-server/cli/",
+    "/.vscode-server-insiders/bin/", "/.vscode-server-insiders/cli/", "/lib/code-server/",
+]
 
 [[hosts]]
 id = "cursor"
 name = "Cursor"
 exe = ["cursor"]
-path = ["/cursor.app/"]
+path = ["/cursor.app/", "/.cursor-server/bin/", "/.cursor-server/cli/"]
 
 [[hosts]]
 id = "windsurf"
 name = "Windsurf"
 exe = ["windsurf"]
-path = ["/windsurf.app/"]
+path = ["/windsurf.app/", "/.windsurf-server/bin/", "/.windsurf-server/cli/"]
 
 [[hosts]]
 id = "kiro"

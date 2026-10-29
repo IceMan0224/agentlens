@@ -43,7 +43,7 @@ phys_footprint, Linux는 상주 페이지에서 공유 페이지를 뺀 값(`sta
   시작할 때 PATH를 한 번 스캔해서 npm 실행 파일의 실제 대상(Windows `zcode.cmd`, macOS/Linux의
   `node_modules`로 가는 심볼릭 링크나 스크립트)을 알아내므로, `node`로 떠 있는 에이전트도 잡힙니다.
   실행 파일 이름과 argv[0] 둘 다 보므로 버전 이름으로 설치되는 실행 파일(`claude/versions/2.1.276`)도 잡힙니다.
-- **호스트/탭**: Orca, VS Code, Cursor, Windsurf, Kiro, Antigravity, Trae, Zed, JetBrains,
+- **호스트/탭**: Orca, VS Code·Cursor·Windsurf(원격 서버·code-server 포함), Kiro, Antigravity, Trae, Zed, JetBrains,
   Claude Desktop, Windows Terminal, macOS Terminal, iTerm2, Ghostty, kitty, WezTerm, Alacritty, Warp,
   Wave, Tabby, GNOME Terminal/Konsole 등, ego. SSH 로그인(`sshd`/`sshd-session`)과 tmux·screen도 호스트로
   보고 로그인·패널 하나를 탭 하나로 묶습니다. 탭을 표시하는 환경변수를 넣어 주는 호스트는 그 값으로 묶습니다
@@ -53,6 +53,9 @@ phys_footprint, Linux는 상주 페이지에서 공유 페이지를 뺀 값(`sta
 - **모델 제공자**: `ANTHROPIC_BASE_URL`/`OPENAI_BASE_URL`이나 명령줄로 GLM(Z.ai), Kimi, DeepSeek 등을 표시합니다.
 - **고아**: 부모가 없거나, 부모 PID가 더 늦게 시작된 다른 프로세스로 재사용된 경우. macOS/Linux에서는
   부모가 죽으면 launchd/init/`systemd --user`에 입양되므로 이 경우를 `adopted-by-init`으로 판정합니다.
+  모든 GUI 앱도 launchd/systemd의 자식이므로, 입양된 프로세스는 그 자체가 에이전트 구성요소(또는 그것을 돌리는
+  셸)일 때만 에이전트 관련으로 봅니다. 아래에 MCP 서버를 띄운 앱이라는 이유만으로는 고아가 아닙니다.
+  WSL의 세션별 `/init` 중계 프로세스처럼 PID 1이 아닌 `init`은 입양자가 아닙니다.
   - 에이전트 구성요소(에이전트, REPL, MCP 서버, 에이전트 런타임)가 남은 것만 **기본 제안**합니다.
   - 에이전트가 띄운 dev 서버 같은 프로그램은 "started-by-agent, from tab …"으로 보여만 줍니다.
 - **수집**: OS마다 커널 인터페이스를 직접 씁니다(`crates/core/src/sys/`).
@@ -64,7 +67,12 @@ phys_footprint, Linux는 상주 페이지에서 공유 페이지를 뺀 값(`sta
   | Linux | `/proc/<pid>/stat`, `statm` | `/proc/<pid>/exe`, `cmdline`, `cwd`, `environ` |
 
   TCP 연결 목록은 3초마다 갱신합니다(연결 끊기 직후에는 즉시). 환경변수는 탭·제공자 판정에 필요한 키만
-  남기고 나머지(비밀값 포함)는 바로 버립니다.
+  남기고 나머지(비밀값 포함)는 바로 버립니다. 명령줄은 비밀처럼 보이는 플래그의 값(`--api-key x`, `--token=x`,
+  `-pw x`), `NAME_TOKEN=x` 형태의 대입, URL의 비밀번호(`https://user:pw@host`)를 `***`로 가린 뒤 보관하므로
+  `--dump-json`에도 남지 않습니다. 이름과 형태로 찾는 방식이라 모든 형식을 잡지는 못합니다(예: `mysql -ppw`).
+- **SSH 연결**: ssh 클라이언트·서버의 연결과, 어떤 프로세스든 카탈로그의 SSH 포트(22)로 가는 연결을 보여 줍니다.
+  `~/.ssh/config`의 `Port`는 sshd가 받는 연결에만 적용합니다(`Port 443` 설정이 모든 HTTPS를 SSH로 만들지 않도록).
+  plink/putty는 PuTTY 옵션 문법(`-pw`, `-load`)으로 해석합니다.
 - **유휴 세션**: 세션 트리 전체가 `idle_minutes`(기본 30분) 동안 CPU 1% 미만. 모니터링을 시작한
   시점부터 세므로 막 실행했을 때는 실제보다 짧게 보입니다.
 - **중복 MCP**: 같은 명령의 MCP 서버가 여러 세션에 떠 있으면 알려 줍니다(정보용).
@@ -74,11 +82,13 @@ phys_footprint, Linux는 상주 페이지에서 공유 페이지를 뺀 값(`sta
 
 ## 안전장치
 
-- 종료 전 확인 창에 대상 프로세스, 확보될 메모리, 끊길 연결 수를 보여 줍니다.
+- 종료 전 확인 창에 대상 프로세스, 확보될 메모리, 끊길 연결 수를 보여 줍니다. 확인은 `y`로만 합니다(창을 여는
+  `enter`를 두 번 누르거나 길게 눌러도 실행되지 않습니다). 목록이 매초 다시 정렬되어도 커서는 고른 항목을 따라갑니다.
 - **부모부터** 종료합니다. 자식부터 끝내면 셸이 그 사이에 다음 명령을 실행하거나 감시 루프가 새 자식을 띄울 수 있기
   때문입니다. 각 대상은 **직전에 PID와 시작 시각을 다시 확인**해 다른 프로세스로 바뀌었으면 건너뜁니다.
   macOS/Linux에서는 SIGTERM을 모두 보낸 뒤 최대 1초 기다리고, 남은 같은 프로세스에만 SIGKILL을 보냅니다.
 - agentlens 자신과 그 조상(실행 중인 터미널), 호스트 앱 본체, 시스템 프로세스, `protect` 규칙에 걸린 프로세스는 거부합니다.
+  연결 끊기도 예외는 SSH 서버 프로세스(`sshd-session`)뿐이라, 내장 SSH를 쓰는 터미널 같은 호스트 앱은 끝내지 않습니다.
 - 탭 종료는 탭 안의 에이전트 세션만 끝내고 셸(탭 자체)과 사용자가 직접 띄운 프로세스는 남깁니다.
 
 ## 규칙 파일

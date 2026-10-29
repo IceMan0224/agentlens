@@ -18,9 +18,9 @@ pub struct KillPlan {
     pub targets: Vec<Target>,
     pub private_bytes: u64,
     pub connections: usize,
-    /// A host process the user chose to end on purpose: the one serving a connection being
-    /// disconnected, such as an `sshd-session`. Other host processes stay refused.
-    pub chosen_host: Option<u32>,
+    /// Host processes the user chose to end on purpose: the SSH server processes serving a
+    /// login being disconnected (`sshd-session`). Other host processes stay refused.
+    pub chosen_hosts: Vec<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,17 +55,25 @@ pub fn plan(model: &Model, roots: &[u32]) -> KillPlan {
             .collect(),
         private_bytes: model.private_bytes(&pids),
         connections: crate::net::connections_of(model, &pids).count(),
-        chosen_host: None,
+        chosen_hosts: Vec::new(),
     }
 }
 
-/// Ends the process that owns a connection, even when it is a host process: closing an SSH
-/// login means ending its `sshd-session`.
-pub fn disconnect_plan(model: &Model, owner: u32) -> KillPlan {
-    KillPlan {
-        chosen_host: Some(owner),
-        ..plan(model, &[owner])
+/// Ends the process that owns a connection. Closing an SSH login means ending its SSH server
+/// processes (with privilege separation, a monitor and its child), so those are allowed even
+/// though they are hosts; any other host that owns a connection stays refused.
+pub fn disconnect_plan(model: &Model, catalog: &Catalog, owner: u32) -> KillPlan {
+    let mut plan = plan(model, &[owner]);
+    let is_server = |pid: &u32| {
+        model
+            .procs
+            .get(pid)
+            .is_some_and(|p| catalog.ssh.servers.contains(&stem(p)))
+    };
+    if is_server(&owner) {
+        plan.chosen_hosts = plan.targets.iter().map(|t| t.pid).filter(is_server).collect();
     }
+    plan
 }
 
 /// Reasons the plan must not run; empty when it is safe.
@@ -75,7 +83,7 @@ pub fn refusals(plan: &KillPlan, model: &Model, catalog: &Catalog, self_pid: u32
         let Some(p) = model.procs.get(&t.pid) else { continue };
         if model.is_ancestor_or_self(t.pid, self_pid) {
             out.push(format!("{} ({}) runs agentlens itself", p.name, p.pid));
-        } else if model.roles.get(&t.pid) == Some(&Role::Host) && plan.chosen_host != Some(t.pid) {
+        } else if model.roles.get(&t.pid) == Some(&Role::Host) && !plan.chosen_hosts.contains(&t.pid) {
             out.push(format!("{} ({}) is a host application", p.name, p.pid));
         } else if model.roles.get(&t.pid) == Some(&Role::System) {
             out.push(format!("{} ({}) is a system process", p.name, p.pid));

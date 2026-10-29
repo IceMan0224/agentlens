@@ -7,6 +7,26 @@ use crate::snapshot::TcpConn;
 /// ssh options that take a value (`-p 22` or `-p22`).
 const SSH_VALUE_OPTS: &str = "BbcDEeFIiJLlmOoPpQRSWw";
 
+/// PuTTY (plink) options that take a value. Its options are whole words, case-sensitive.
+const PUTTY_VALUE_OPTS: &[&str] = &[
+    "P",
+    "l",
+    "pw",
+    "pwfile",
+    "i",
+    "load",
+    "hostkey",
+    "m",
+    "L",
+    "R",
+    "D",
+    "nc",
+    "proxycmd",
+    "sercfg",
+    "sshlog",
+    "sshrawlog",
+];
+
 #[derive(Debug, Clone)]
 pub struct SshConn {
     pub pid: u32,
@@ -141,11 +161,38 @@ pub fn parse_ssh_args(args: &[String]) -> Option<(Option<String>, String, Option
     None
 }
 
-/// Connections of SSH clients and servers, and any connection to an SSH port (the catalog's
-/// plus every `Port` in `~/.ssh/config`).
+/// (user, destination, port) from a PuTTY-style command line (`plink -P 22 -pw x me@box`).
+pub fn parse_putty_args(args: &[String]) -> Option<(Option<String>, String, Option<u16>)> {
+    let mut user = None;
+    let mut port = None;
+    let mut it = args.iter().skip(1);
+    while let Some(arg) = it.next() {
+        if let Some(opt) = arg.strip_prefix('-') {
+            if PUTTY_VALUE_OPTS.contains(&opt) {
+                let value = it.next().cloned();
+                match opt {
+                    "P" => port = value.and_then(|v| v.parse().ok()),
+                    "l" => user = value,
+                    _ => {}
+                }
+            }
+            continue;
+        }
+        let (u, host) = match arg.rsplit_once('@') {
+            Some((u, h)) => (Some(u.to_string()), h),
+            None => (user, arg.as_str()),
+        };
+        return Some((u, host.to_string(), port));
+    }
+    None
+}
+
+/// Connections of SSH clients and servers, and any connection to one of the catalog's SSH
+/// ports. Ports from `~/.ssh/config` count for SSH servers only: clients are matched by name,
+/// and a `Port 443` there must not make every process's HTTPS connection an SSH one.
 pub fn ssh_connections(model: &Model, catalog: &Catalog, config: &[SshHost]) -> Vec<SshConn> {
     let ssh = &catalog.ssh;
-    let ports: Vec<u16> = ssh
+    let server_ports: Vec<u16> = ssh
         .ports
         .iter()
         .copied()
@@ -156,12 +203,17 @@ pub fn ssh_connections(model: &Model, catalog: &Catalog, config: &[SshHost]) -> 
         let Some(p) = model.procs.get(&conn.pid) else { continue };
         let s = stem(p);
         let client = ssh.clients.contains(&s);
-        let inbound = ssh.servers.contains(&s) && ports.contains(&conn.local_port);
-        if !(client || inbound || ports.contains(&conn.remote_port)) {
+        let inbound = ssh.servers.contains(&s) && server_ports.contains(&conn.local_port);
+        if !(client || inbound || ssh.ports.contains(&conn.remote_port)) {
             continue;
         }
         let (mut alias, mut user, mut host, mut port) = (None, None, conn.remote_addr.clone(), conn.remote_port);
-        if client && let Some((u, dest, pt)) = parse_ssh_args(&p.cmd) {
+        let parsed = if ssh.putty.contains(&s) {
+            parse_putty_args(&p.cmd)
+        } else {
+            parse_ssh_args(&p.cmd)
+        };
+        if client && let Some((u, dest, pt)) = parsed {
             let resolved = resolve(config, &dest);
             if resolved.hostname.is_some() {
                 alias = Some(dest.clone());
@@ -237,6 +289,59 @@ mod tests {
             parse_ssh_args(&args("ssh -vp2200 box")),
             Some((None, "box".into(), Some(2200)))
         );
+    }
+
+    #[test]
+    fn parses_putty_word_options() {
+        // `-pw` takes the next argument: the password must not become the destination.
+        assert_eq!(
+            parse_putty_args(&args("plink -ssh -P 2222 -pw s3cret me@box")),
+            Some((Some("me".into()), "box".into(), Some(2222)))
+        );
+        assert_eq!(
+            parse_putty_args(&args("plink -load prod -l root box")),
+            Some((Some("root".into()), "box".into(), None))
+        );
+        assert_eq!(parse_putty_args(&args("putty -load prod")), None);
+    }
+
+    #[test]
+    fn config_ports_do_not_make_https_ssh() {
+        use crate::snapshot::{ProcInfo, Snapshot};
+        let proc = |pid: u32, name: &str, cmd: &str| ProcInfo {
+            pid,
+            ppid: None,
+            name: name.into(),
+            exe: None,
+            cmd: args(cmd),
+            cwd: None,
+            env: Vec::new(),
+            start_time: 1,
+            cpu: 0.0,
+            private_bytes: 0,
+            working_set: 0,
+        };
+        let conn = |pid: u32| TcpConn {
+            pid,
+            local_addr: "10.0.0.2".into(),
+            local_port: 50000 + pid as u16,
+            remote_addr: "140.82.112.35".into(),
+            remote_port: 443,
+        };
+        let catalog = Catalog::builtin();
+        let model = Model::build(
+            Snapshot {
+                taken_at: 2,
+                processes: vec![proc(10, "node", "node cli.js"), proc(11, "ssh", "ssh gh")],
+                tcp: vec![conn(10), conn(11)],
+            },
+            &catalog,
+        );
+        // GitHub's documented SSH-over-HTTPS setup.
+        let config = parse_ssh_config("Host gh\n  Hostname ssh.github.com\n  Port 443\n");
+        let rows = ssh_connections(&model, &catalog, &config);
+        assert_eq!(rows.iter().map(|c| c.pid).collect::<Vec<_>>(), [11]);
+        assert_eq!((rows[0].host.as_str(), rows[0].port), ("ssh.github.com", 443));
     }
 
     #[test]

@@ -148,10 +148,17 @@ pub fn candidates(model: &Model, history: &History, idle_minutes: u64) -> Vec<Ca
                 .push(*pid);
         }
     }
-    let mut dups: Vec<_> = mcp.into_values().filter(|pids| pids.len() > 1).collect();
+    // Sorted inside and out, so the rows keep their order from one refresh to the next.
+    let mut dups: Vec<_> = mcp
+        .into_values()
+        .filter(|pids| pids.len() > 1)
+        .map(|mut pids| {
+            pids.sort_unstable();
+            pids
+        })
+        .collect();
     dups.sort();
-    for mut pids in dups {
-        pids.sort_unstable();
+    for pids in dups {
         let sessions: std::collections::HashSet<_> = pids.iter().filter_map(|p| model.locate(*p)).collect();
         let p = &model.procs[&pids[0]];
         out.push(Candidate {

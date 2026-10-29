@@ -145,7 +145,7 @@ pub fn set_value(path: &Path, key: &str, value: &str) -> Result<(), String> {
 
 /// Appends a `[[hosts]]` entry to the file instead of rewriting it, so the user's comments
 /// and any edits not loaded yet are kept. Does nothing when the executable is already a host
-/// there, and refuses to touch a file that does not parse.
+/// there, and refuses to touch a file that does not parse, or to write one that would not.
 pub fn append_host(path: &Path, exe_stem: &str) -> Result<(), String> {
     let existing = read_existing(path)?;
     let current: Rules = toml::from_str(&existing).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -176,7 +176,15 @@ pub fn append_host(path: &Path, exe_stem: &str) -> Result<(), String> {
     } else {
         "\n\n"
     };
-    write_file(path, &format!("{existing}{separator}{entry}"))
+    let text = format!("{existing}{separator}{entry}");
+    // `hosts = [...]` written as an array cannot be extended by a `[[hosts]]` table.
+    toml::from_str::<Rules>(&text).map_err(|e| {
+        format!(
+            "{}: a [[hosts]] entry cannot be appended here; add it by hand ({e})",
+            path.display()
+        )
+    })?;
+    write_file(path, &text)
 }
 
 #[cfg(test)]
@@ -254,6 +262,20 @@ id = \"t\"
         assert_eq!(broken, "idle_minutes = [");
         let rules: Rules = toml::from_str(&text).unwrap();
         assert_eq!((rules.idle_minutes, rules.language), (15, Language::En));
+    }
+
+    #[test]
+    fn append_host_leaves_inline_host_arrays_alone() {
+        let dir = std::env::temp_dir().join(format!("agentlens-inline-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rules.toml");
+        let inline = "hosts = [{ id = \"x\", exe = [\"x\"] }]\n";
+        std::fs::write(&path, inline).unwrap();
+        let result = append_host(&path, "foo");
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(result.is_err());
+        assert_eq!(text, inline, "the file still parses");
     }
 
     #[test]

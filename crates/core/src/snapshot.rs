@@ -6,9 +6,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::sys;
 
-/// Variables whose names look like credentials are dropped even when asked for, so snapshots
-/// never carry secrets.
+/// Variables whose names look like credentials are dropped even when asked for, and
+/// credentials in command lines and URLs are masked (see `redact_cmd`), so snapshots do not
+/// carry secrets in the usual places. Detection is by name and shape, not exhaustive.
 const SECRET_MARKERS: &[&str] = &["TOKEN", "KEY", "SECRET", "PASSWORD", "AUTH"];
+
+const REDACTED: &str = "***";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -120,7 +123,7 @@ impl Collector {
                 let d = sys::details(p.pid);
                 Known {
                     exe: d.exe,
-                    cmd: d.cmd,
+                    cmd: redact_cmd(d.cmd),
                     cwd: d.cwd,
                     cwd_env_pending: d.env.is_none(),
                     env: d
@@ -220,8 +223,105 @@ fn display_name(kernel: String, exe: Option<&str>) -> String {
 fn keep_env(entry: &str, keys: &[String]) -> Option<(String, String)> {
     let (key, value) = entry.split_once('=')?;
     let upper = key.to_ascii_uppercase();
-    let secret = SECRET_MARKERS.iter().any(|m| upper.contains(m));
-    (keys.contains(&upper) && !secret).then(|| (key.to_string(), value.to_string()))
+    (keys.contains(&upper) && !secret_var(&upper)).then(|| (key.to_string(), redact_urls(value)))
+}
+
+fn secret_var(upper: &str) -> bool {
+    SECRET_MARKERS.iter().any(|m| upper.contains(m))
+}
+
+/// A flag whose value is a credential: `--api-key`, `--token`, `--password`, plink's `-pw`.
+fn secret_flag(flag: &str) -> bool {
+    let name: String = flag
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    matches!(name.as_str(), "pw" | "pass" | "key" | "auth")
+        || [
+            "token",
+            "secret",
+            "password",
+            "passwd",
+            "apikey",
+            "credential",
+            "authorization",
+        ]
+        .iter()
+        .any(|m| name.contains(m))
+}
+
+/// Masks the value of secret-looking flags (`--api-key x`, `--token=x`), secret-looking
+/// `NAME=value` assignments, and passwords in URLs. Flags and everything else stay, so
+/// processes are still recognized by their command lines.
+fn redact_cmd(cmd: Vec<String>) -> Vec<String> {
+    let mut out = Vec::with_capacity(cmd.len());
+    let mut hide_next = false;
+    for arg in cmd {
+        if std::mem::take(&mut hide_next) {
+            out.push(REDACTED.to_string());
+            continue;
+        }
+        if let Some(flag) = arg.strip_prefix('-') {
+            match flag.split_once('=') {
+                Some((name, _)) if secret_flag(name) => {
+                    out.push(format!("-{name}={REDACTED}"));
+                    continue;
+                }
+                None if secret_flag(flag) => {
+                    hide_next = true;
+                    out.push(arg);
+                    continue;
+                }
+                _ => {}
+            }
+        } else if let Some((name, _)) = arg.split_once('=')
+            && !name.is_empty()
+            && !name.contains(char::is_whitespace)
+            && secret_var(&name.to_ascii_uppercase())
+        {
+            out.push(format!("{name}={REDACTED}"));
+            continue;
+        }
+        out.push(redact_urls(&arg));
+    }
+    out
+}
+
+/// Masks the credentials in every `scheme://user:password@host` of `text`. A user name
+/// alone is kept for ssh (`ssh://me@box`) and masked elsewhere, where it usually is a token
+/// (`https://ghp_x@github.com`).
+fn redact_urls(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find("://") {
+        let (head, tail) = rest.split_at(i + 3);
+        out.push_str(head);
+        let end = tail
+            .find(|c: char| matches!(c, '/' | '?' | '#' | '"' | '\'') || c.is_whitespace())
+            .unwrap_or(tail.len());
+        let authority = &tail[..end];
+        match authority.rsplit_once('@') {
+            Some((userinfo, host)) => {
+                let scheme = head[..i]
+                    .rsplit(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')))
+                    .next()
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                match userinfo.split_once(':') {
+                    Some((user, _)) => out.push_str(&format!("{user}:{REDACTED}")),
+                    None if matches!(scheme.as_str(), "ssh" | "sftp" | "scp") => out.push_str(userinfo),
+                    None => out.push_str(REDACTED),
+                }
+                out.push('@');
+                out.push_str(host);
+            }
+            None => out.push_str(authority),
+        }
+        rest = &tail[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn tcp_connections() -> Vec<TcpConn> {
@@ -284,5 +384,27 @@ mod tests {
         assert!(keep_env("ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic", &keys).is_some());
         assert_eq!(keep_env("ORCA_API_TOKEN=abc", &keys), None, "asked for, but a secret");
         assert_eq!(keep_env("PATH=C:\\", &keys), None);
+        assert_eq!(
+            keep_env("ANTHROPIC_BASE_URL=https://me:pw@proxy.local/v1", &keys),
+            Some(("ANTHROPIC_BASE_URL".into(), "https://me:***@proxy.local/v1".into()))
+        );
+    }
+
+    #[test]
+    fn redact_cmd_masks_credentials_only() {
+        let cmd = |s: &str| s.split_whitespace().map(str::to_string).collect::<Vec<_>>();
+        let r = |s: &str| redact_cmd(cmd(s)).join(" ");
+        assert_eq!(
+            r("npx -y @upstash/context7-mcp --api-key sk-1 --resume abc"),
+            "npx -y @upstash/context7-mcp --api-key *** --resume abc"
+        );
+        assert_eq!(r("plink -pw s3cret me@box"), "plink -pw *** me@box");
+        assert_eq!(r("app --token=abc --no-auth host"), "app --token=*** --no-auth host");
+        assert_eq!(r("env GITHUB_TOKEN=abc node x.js"), "env GITHUB_TOKEN=*** node x.js");
+        assert_eq!(
+            r("git clone https://x-access-token:abc@github.com/o/r https://ghp_1@github.com/o/r"),
+            "git clone https://x-access-token:***@github.com/o/r https://***@github.com/o/r"
+        );
+        assert_eq!(r("ssh ssh://me@box:2200 -p 22"), "ssh ssh://me@box:2200 -p 22");
     }
 }

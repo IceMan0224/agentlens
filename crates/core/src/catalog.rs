@@ -45,6 +45,7 @@ pub struct Processes {
 #[serde(default)]
 pub struct Ssh {
     pub clients: Vec<String>,
+    pub putty: Vec<String>,
     pub servers: Vec<String>,
     pub ports: Vec<u16>,
 }
@@ -174,6 +175,7 @@ impl Catalog {
             (&mut p.mcp, o.mcp),
             (&mut p.session_flags, o.session_flags),
             (&mut self.ssh.clients, other.ssh.clients),
+            (&mut self.ssh.putty, other.ssh.putty),
             (&mut self.ssh.servers, other.ssh.servers),
             (&mut self.providers.env, other.providers.env),
             (&mut self.providers.first_party, other.providers.first_party),
@@ -232,6 +234,7 @@ impl Catalog {
             &mut p.sandbox,
             &mut p.mcp,
             &mut self.ssh.clients,
+            &mut self.ssh.putty,
             &mut self.ssh.servers,
             &mut self.providers.first_party,
         ] {

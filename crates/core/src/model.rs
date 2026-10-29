@@ -131,6 +131,7 @@ fn has(list: &[String], name: &str) -> bool {
 }
 
 /// PID 1 or a subreaper. Children linked to it count as having lost their real parent.
+/// Other processes that share a reaper's name (WSL's per-session `init` relays) are not.
 fn is_reaper(c: &Catalog, p: &ProcInfo) -> bool {
     p.pid == 1 || has(&c.processes.reapers, &stem(p))
 }
@@ -241,6 +242,8 @@ fn provider(c: &Catalog, agent: &AgentDef, p: &ProcInfo) -> Option<String> {
                 .split('/')
                 .next()
                 .unwrap_or_default();
+            // Credentials in the URL are masked by the collector; the host is what names it.
+            let host = host.rsplit('@').next().unwrap_or(host);
             return Some(host.to_string());
         }
     }
@@ -542,14 +545,20 @@ impl Model {
         stray.sort_unstable();
         for pid in stray {
             let subtree = model.subtree(pid);
-            let agent_related = subtree.iter().any(|q| model.is_agent_component(catalog, q, &roles));
+            let reason = model.orphan_reason(catalog, pid);
             let root_stem = stem(&model.procs[&pid]);
+            let is_shell = has(&catalog.processes.shells, &root_stem);
+            // On Unix every app is adopted by launchd/systemd, so an adopted root counts as agent
+            // machinery only by itself (or as a shell running it), not by an MCP server it runs.
+            let agent_related = if reason == OrphanReason::Reparented && !is_shell {
+                model.is_agent_component(catalog, &pid, &roles)
+            } else {
+                subtree.iter().any(|q| model.is_agent_component(catalog, q, &roles))
+            };
             let runtimes = &catalog.processes.runtimes;
             let runs_runtime = subtree.iter().any(|q| has(runtimes, &stem(&model.procs[q])));
-            let runtime_like =
-                has(runtimes, &root_stem) || (has(&catalog.processes.shells, &root_stem) && runs_runtime);
+            let runtime_like = has(runtimes, &root_stem) || (is_shell && runs_runtime);
             if agent_related || runtime_like {
-                let reason = model.orphan_reason(catalog, pid);
                 let in_tree = || subtree.iter().map(|q| &model.procs[q]);
                 let launched_by_agent = first_env(in_tree(), &launch_vars).is_some();
                 let origin = first_env(in_tree(), &tab_vars)
