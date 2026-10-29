@@ -8,6 +8,7 @@ use std::time::Duration;
 use agentlens_core::actions::{self, KillPlan, Outcome};
 use agentlens_core::catalog::Catalog;
 use agentlens_core::health::{Candidate, CandidateKind, History, candidates, fmt_duration, short_cmd};
+use agentlens_core::keys::{self, KeyInfo, SshInventory};
 use agentlens_core::model::{Group, GroupKind, Model, Role, short_path};
 use agentlens_core::net::{self, SshConn, SshHost};
 use agentlens_core::rules::{Language, Rules, rules_path};
@@ -123,6 +124,8 @@ pub struct App {
     candidates: Vec<Candidate>,
     ssh: Vec<SshConn>,
     ssh_config: Vec<SshHost>,
+    /// Read again whenever Network is opened.
+    ssh_keys: SshInventory,
     view: View,
     sort: Sort,
     selected: [usize; 5],
@@ -156,6 +159,7 @@ impl App {
             "q 종료 · ←→ 접기 · k 트리 종료 · enter 상세 · s 정렬 · 1-5 화면",
         )
         .into();
+        let ssh_config = net::load_ssh_config();
         Self {
             catalog,
             rules,
@@ -165,7 +169,8 @@ impl App {
             history: History::default(),
             candidates: Vec::new(),
             ssh: Vec::new(),
-            ssh_config: net::load_ssh_config(),
+            ssh_keys: keys::load_default(&ssh_config),
+            ssh_config,
             view: View::Sessions,
             sort: Sort::Memory,
             selected: [0; 5],
@@ -580,6 +585,22 @@ impl App {
                 self.draw_table(frame, table);
                 frame.render_widget(self.auto_cleanup_text(), info);
             }
+            View::Network => {
+                let lines = self.ssh_key_lines();
+                let height = (lines.len() as u16 + 2).min(table_area.height / 2);
+                let [table, keys] =
+                    Layout::vertical([Constraint::Min(5), Constraint::Length(height)]).areas(table_area);
+                self.draw_table(frame, table);
+                let title = t(
+                    self.lang(),
+                    "SSH keys and hosts (~/.ssh, read only)",
+                    "SSH 키와 호스트 (~/.ssh, 조회 전용)",
+                );
+                let text = Paragraph::new(lines)
+                    .wrap(Wrap { trim: false })
+                    .block(Block::bordered().title(title));
+                frame.render_widget(text, keys);
+            }
             _ => self.draw_table(frame, table_area),
         }
         if let Some(area) = detail_area {
@@ -932,6 +953,73 @@ impl App {
         lines
     }
 
+    fn ssh_key_lines(&self) -> Vec<Line<'static>> {
+        let lang = self.lang();
+        let inv = &self.ssh_keys;
+        let dir = inv
+            .dir
+            .as_ref()
+            .map(|d| d.display().to_string())
+            .unwrap_or_else(|| "-".into());
+        let key_line = |k: &KeyInfo| {
+            let mut parts = vec![format!("  {}", k.name)];
+            parts.push(if k.kind.is_empty() {
+                t(lang, "(private key only, no .pub)", "(개인키만 있음, .pub 없음)").to_string()
+            } else {
+                k.kind.clone()
+            });
+            parts.extend(k.fingerprint.clone());
+            if !k.comment.is_empty() {
+                parts.push(k.comment.clone());
+            }
+            if k.has_private && !k.kind.is_empty() {
+                parts.push(t(lang, "private key present", "개인키 있음").to_string());
+            }
+            if !k.used_by.is_empty() {
+                let hosts = k.used_by.join(", ");
+                parts.push(tf!(lang, "used for {hosts}", "사용 호스트: {hosts}"));
+            }
+            Line::from(parts.join("  "))
+        };
+        let (n, none) = (inv.keys.len(), t(lang, "  none", "  없음"));
+        let mut lines = vec![Line::from(tf!(lang, "keys ({n}) · {dir}", "키 ({n}개) · {dir}")).bold()];
+        lines.extend(inv.keys.iter().map(key_line));
+        if inv.keys.is_empty() {
+            lines.push(Line::from(none).dim());
+        }
+        let n = inv.known.len();
+        lines.push(
+            Line::from(tf!(
+                lang,
+                "known_hosts ({n}): servers this machine has connected to",
+                "known_hosts ({n}개): 이 PC가 접속했던 서버"
+            ))
+            .bold(),
+        );
+        lines.extend(
+            inv.known
+                .iter()
+                .map(|h| Line::from(format!("  {}  {}", h.hosts, h.kinds.join(", ")))),
+        );
+        if inv.known.is_empty() {
+            lines.push(Line::from(none).dim());
+        }
+        let n = inv.authorized.len();
+        lines.push(
+            Line::from(tf!(
+                lang,
+                "authorized_keys ({n}): keys allowed to log in to this machine",
+                "authorized_keys ({n}개): 이 PC에 로그인할 수 있는 키"
+            ))
+            .bold(),
+        );
+        lines.extend(inv.authorized.iter().map(key_line));
+        if inv.authorized.is_empty() {
+            lines.push(Line::from(none).dim());
+        }
+        lines
+    }
+
     fn auto_cleanup_text(&self) -> Paragraph<'static> {
         let lang = self.lang();
         let now = self.model.as_ref().map(|m| m.taken_at);
@@ -1056,6 +1144,10 @@ impl App {
     }
 
     fn set_view(&mut self, i: usize) {
+        if VIEWS[i] == View::Network && self.view != View::Network {
+            self.ssh_config = net::load_ssh_config();
+            self.ssh_keys = keys::load_default(&self.ssh_config);
+        }
         self.view = VIEWS[i];
     }
 

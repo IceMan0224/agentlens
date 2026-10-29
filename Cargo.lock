@@ -17,11 +17,13 @@ dependencies = [
 name = "agentlens-core"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "libc",
  "mach2",
  "netstat2",
  "serde",
  "serde_json",
+ "sha2",
  "sysinfo",
  "toml",
  "windows",

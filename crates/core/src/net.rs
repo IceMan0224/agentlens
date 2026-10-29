@@ -48,6 +48,7 @@ pub struct SshHost {
     pub hostname: Option<String>,
     pub user: Option<String>,
     pub port: Option<u16>,
+    pub identity_files: Vec<String>,
 }
 
 pub fn parse_ssh_config(text: &str) -> Vec<SshHost> {
@@ -76,6 +77,7 @@ pub fn parse_ssh_config(text: &str) -> Vec<SshHost> {
                     "hostname" => host.hostname = Some(value),
                     "user" => host.user = Some(value),
                     "port" => host.port = value.parse().ok(),
+                    "identityfile" => host.identity_files.push(value),
                     _ => {}
                 }
             }
@@ -85,8 +87,8 @@ pub fn parse_ssh_config(text: &str) -> Vec<SshHost> {
 }
 
 pub fn load_ssh_config() -> Vec<SshHost> {
-    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
-        .map(|home| std::path::PathBuf::from(home).join(".ssh").join("config"))
+    crate::keys::ssh_dir()
+        .map(|dir| dir.join("config"))
         .and_then(|path| std::fs::read_to_string(path).ok())
         .map(|text| parse_ssh_config(&text))
         .unwrap_or_default()
