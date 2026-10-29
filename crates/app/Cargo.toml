@@ -2,6 +2,10 @@
 name = "agentlens"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
+description = "Terminal dashboard for coding-agent processes: sessions by host and tab, leftover cleanup, SSH and ports"
+license = "MIT"
+repository = "https://github.com/IceMan0224/agentlens"
 
 [dependencies]
 agentlens-core = { version = "0.1.0", path = "../core" }
