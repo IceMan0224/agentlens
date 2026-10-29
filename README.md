@@ -21,12 +21,13 @@ cargo build --release
 
 | 뷰 | 내용 | 주요 키 |
 |---|---|---|
-| 1 Sessions | 호스트 › 탭(worktree) › 에이전트 세션 › 프로세스 트리, Private 메모리·CPU·유휴 시간 | `←/→`·`space` 접기/펼치기, `enter` 상세(명령줄·cwd·연결), `k` 선택한 탭/세션/프로세스 트리 종료, `h` 미등록 호스트 등록 |
+| 1 Sessions | 호스트 › 탭(worktree) › 에이전트 세션 › 프로세스 트리, Private 메모리·CPU·유휴 시간 | `←/→`·`space` 접기/펼치기, `enter` 상세(명령줄·cwd·연결), `k`/`x`/`Del` 선택한 호스트 그룹·탭·세션·프로세스 트리 종료(호스트 그룹·탭은 그 안의 에이전트 세션만), `h` 미등록 호스트 등록 |
 | 2 Cleanup | 정리 후보와 판정 근거 (노란색 = 기본 제안) | `space` 표시, `x` 표시한 항목 종료 |
 | 3 Network | SSH 연결: 목적지(별칭 해석), 원격 주소, 프로세스, 소유 세션 | `d` 연결 끊기 (나가는 연결은 ssh 클라이언트, 들어오는 연결은 그 로그인의 `sshd-session` 종료) |
-| 4 Rules | 카탈로그·설치 스캔 결과·규칙 파일 | `e` 편집기로 열기(메모장 / `open -t` / `xdg-open`), `r` 다시 읽기 |
+| 4 Rules | 고아 판정 원리, 카탈로그·설치 스캔 결과·규칙 파일 | `↑↓` 스크롤, `e` 편집기로 열기(메모장 / `open -t` / `xdg-open`), `r` 다시 읽기 |
+| 5 Settings | 언어(English/한국어), 자동 정리 주기·유휴 세션 포함 여부, 유휴 기준 | `←/→`·`enter`·클릭 변경. 바꾸는 즉시 적용되고 규칙 파일의 해당 줄만 고쳐 저장(주석 유지) |
 
-공통: `1-4`/`tab` 뷰 전환, `s` 정렬(메모리→CPU→유휴), 마우스 휠·클릭(같은 행 두 번 클릭 = 접기), `q` 종료.
+공통: `1-5`/`tab` 뷰 전환, `s` 정렬(메모리→CPU→유휴), 마우스 휠·클릭(같은 행 두 번 클릭 = 접기), `q` 종료.
 
 메모리는 그 프로세스만 쓰는 양 기준입니다: Windows는 Private Bytes(commit), macOS는 활동 모니터와 같은
 phys_footprint, Linux는 상주 페이지에서 공유 페이지를 뺀 값(`statm`). Working Set/RSS는 공유 메모리가
@@ -67,6 +68,9 @@ phys_footprint, Linux는 상주 페이지에서 공유 페이지를 뺀 값(`sta
 - **유휴 세션**: 세션 트리 전체가 `idle_minutes`(기본 30분) 동안 CPU 1% 미만. 모니터링을 시작한
   시점부터 세므로 막 실행했을 때는 실제보다 짧게 보입니다.
 - **중복 MCP**: 같은 명령의 MCP 서버가 여러 세션에 떠 있으면 알려 줍니다(정보용).
+- **자동 정리**: 설정한 주기(5~60분)마다 정리 화면에서 표시된 기본 제안 후보를 종료합니다. 대시보드가 열려 있는
+  동안만 동작하고, 켠 시점부터 주기를 셉니다. 발견된 지 60초가 안 된 후보, 표시를 해제한 후보, 거부 대상은 건너뜁니다.
+  유휴 세션은 설정에서 포함했을 때만 종료합니다.
 
 ## 안전장치
 
@@ -86,6 +90,9 @@ Windows `%APPDATA%\agentlens\rules.toml`, macOS/Linux `$XDG_CONFIG_HOME/agentlen
 ```toml
 idle_minutes = 30
 protect = ["dev-server"]          # 이름/명령줄에 포함되면 종료 거부
+language = "ko"                   # en | ko
+auto_cleanup_minutes = 15         # 0 = 끔
+auto_cleanup_idle = false         # 자동 정리에 유휴 세션 포함
 
 [processes]
 shells = ["elvish"]               # 새 셸

@@ -1,15 +1,16 @@
-//! Interactive dashboard: sessions grouped by host and tab, cleanup candidates, SSH, rules.
+//! Interactive dashboard: sessions grouped by host and tab, cleanup candidates, SSH, rules,
+//! settings.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;
 use std::time::Duration;
 
 use agentlens_core::actions::{self, KillPlan, Outcome};
 use agentlens_core::catalog::Catalog;
 use agentlens_core::health::{Candidate, CandidateKind, History, candidates, fmt_duration, short_cmd};
-use agentlens_core::model::{GroupKind, Model, Role, short_path};
+use agentlens_core::model::{Group, GroupKind, Model, Role, short_path};
 use agentlens_core::net::{self, SshConn, SshHost};
-use agentlens_core::rules::{Rules, rules_path};
+use agentlens_core::rules::{Language, Rules, rules_path};
 use agentlens_core::{Collector, Snapshot};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
@@ -18,10 +19,23 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Cell, Clear, Paragraph, Row, Table, TableState, Tabs, Wrap};
 use ratatui::{DefaultTerminal, Frame};
 
+use crate::i18n::{phrase, t, tf};
 use crate::report::{mb, role_label};
 
-const VIEWS: [&str; 4] = ["Sessions", "Cleanup", "Network", "Rules"];
+const VIEWS: [View; 5] = [
+    View::Sessions,
+    View::Cleanup,
+    View::Network,
+    View::Rules,
+    View::Settings,
+];
 const REFRESH: Duration = Duration::from_secs(1);
+/// Choices offered in Settings; other values typed into the rules file are kept as they are.
+const AUTO_CLEANUP_MINUTES: [u64; 6] = [0, 5, 10, 15, 30, 60];
+const IDLE_MINUTES: [u64; 5] = [10, 15, 30, 60, 120];
+/// Automatic cleanup leaves candidates alone until they have been seen this long, so a tree
+/// caught mid-exit or mid-restart is not ended.
+const AUTO_CLEANUP_GRACE_SECS: u64 = 60;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum View {
@@ -29,7 +43,35 @@ enum View {
     Cleanup,
     Network,
     Rules,
+    Settings,
 }
+
+impl View {
+    fn name(self, lang: Language) -> &'static str {
+        match self {
+            View::Sessions => t(lang, "Sessions", "세션"),
+            View::Cleanup => t(lang, "Cleanup", "정리"),
+            View::Network => t(lang, "Network", "네트워크"),
+            View::Rules => t(lang, "Rules", "규칙"),
+            View::Settings => t(lang, "Settings", "설정"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Setting {
+    Language,
+    AutoCleanup,
+    AutoCleanupIdle,
+    IdleMinutes,
+}
+
+const SETTINGS: [Setting; 4] = [
+    Setting::Language,
+    Setting::AutoCleanup,
+    Setting::AutoCleanupIdle,
+    Setting::IdleMinutes,
+];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Sort {
@@ -83,11 +125,16 @@ pub struct App {
     ssh_config: Vec<SshHost>,
     view: View,
     sort: Sort,
-    selected: [usize; 4],
-    offsets: [usize; 4],
+    selected: [usize; 5],
+    offsets: [usize; 5],
     flipped: HashSet<String>,
     marked: HashSet<u32>,
-    seen_candidates: HashSet<u32>,
+    /// Candidate root -> when it was first seen.
+    seen_candidates: HashMap<u32, u64>,
+    /// When automatic cleanup last ran, or was switched on.
+    last_auto_cleanup: Option<u64>,
+    /// When it last ended something or found nothing, and what happened.
+    auto_cleanup_result: Option<(u64, String)>,
     confirm: Option<Confirm>,
     detail: bool,
     status: String,
@@ -103,6 +150,12 @@ pub struct App {
 impl App {
     pub fn new(rules: Rules, installed: Vec<(String, String)>) -> Self {
         let catalog = Catalog::builtin().with_rules(&rules).with_installed(&installed);
+        let status = t(
+            rules.language,
+            "q quit · ←→ fold · k end tree · enter details · s sort · 1-5 views",
+            "q 종료 · ←→ 접기 · k 트리 종료 · enter 상세 · s 정렬 · 1-5 화면",
+        )
+        .into();
         Self {
             catalog,
             rules,
@@ -115,14 +168,16 @@ impl App {
             ssh_config: net::load_ssh_config(),
             view: View::Sessions,
             sort: Sort::Memory,
-            selected: [0; 4],
-            offsets: [0; 4],
+            selected: [0; 5],
+            offsets: [0; 5],
             flipped: HashSet::new(),
             marked: HashSet::new(),
-            seen_candidates: HashSet::new(),
+            seen_candidates: HashMap::new(),
+            last_auto_cleanup: None,
+            auto_cleanup_result: None,
             confirm: None,
             detail: false,
-            status: "q quit · ←→ fold · k end tree · enter details · s sort · 1-4 views".into(),
+            status,
             items: Vec::new(),
             table_area: Rect::default(),
             tabs_area: Rect::default(),
@@ -141,18 +196,27 @@ impl App {
         // Pre-mark new eligible candidates and announce them; keep the user's choices otherwise.
         let mut fresh = Vec::new();
         for c in &self.candidates {
-            if self.seen_candidates.insert(c.root_pid) && c.eligible {
-                self.marked.insert(c.root_pid);
-                fresh.push(format!("{} ({})", c.label, mb(c.private_bytes)));
+            if let std::collections::hash_map::Entry::Vacant(e) = self.seen_candidates.entry(c.root_pid) {
+                e.insert(model.taken_at);
+                if c.eligible {
+                    self.marked.insert(c.root_pid);
+                    fresh.push(format!("{} ({})", c.label, mb(c.private_bytes)));
+                }
             }
         }
         let alive: HashSet<u32> = self.candidates.iter().map(|c| c.root_pid).collect();
         self.marked.retain(|p| alive.contains(p));
-        self.seen_candidates.retain(|p| alive.contains(p));
+        self.seen_candidates.retain(|p, _| alive.contains(p));
         if !fresh.is_empty() && self.model.is_some() {
-            self.status = format!("new cleanup candidate: {}", fresh.join(", "));
+            let fresh = fresh.join(", ");
+            self.status = tf!(self.lang(), "new cleanup candidate: {fresh}", "새 정리 후보: {fresh}");
         }
         self.model = Some(model);
+        self.auto_cleanup();
+    }
+
+    fn lang(&self) -> Language {
+        self.rules.language
     }
 
     fn is_open(&self, item: &Item) -> bool {
@@ -181,6 +245,7 @@ impl App {
         let Some(m) = self.model.as_ref() else {
             return Vec::new();
         };
+        let lang = self.lang();
         let mut items = Vec::new();
         let mut rows = Vec::new();
 
@@ -197,11 +262,18 @@ impl App {
             let header = Item::OrphanHeader;
             let all: Vec<u32> = m.orphans.iter().flat_map(|o| m.subtree(o.pid)).collect();
             let mut cells = vec![
-                Cell::from(fold(self.is_open(&header), "⚠ No parent (orphans)")),
+                Cell::from(fold(
+                    self.is_open(&header),
+                    t(lang, "⚠ No parent (orphans)", "⚠ 부모 없음 (고아)"),
+                )),
                 Cell::from(""),
             ];
             cells.extend(stats(&all, None));
-            cells.push(Cell::from("parent exited; see Cleanup"));
+            cells.push(Cell::from(t(
+                lang,
+                "parent exited; see Cleanup, how it is judged in Rules",
+                "부모 종료됨 · 정리 화면 참고, 판정 원리는 규칙 화면",
+            )));
             rows.push(Row::new(cells).style(Style::new().fg(Color::Yellow).bold()));
             let open = self.is_open(&header);
             items.push(header);
@@ -211,9 +283,9 @@ impl App {
                     let tree = m.subtree(o.pid);
                     let p = &m.procs[&o.pid];
                     let note = match (o.agent_related, &o.origin) {
-                        (true, _) => "agent leftover".to_string(),
-                        (false, Some(tab)) => format!("started by agent in {tab}"),
-                        (false, None) => "not agent".to_string(),
+                        (true, _) => t(lang, "agent leftover", "에이전트 잔여물").to_string(),
+                        (false, Some(tab)) => tf!(lang, "started by agent in {tab}", "{tab}에서 에이전트가 실행"),
+                        (false, None) => t(lang, "not agent", "에이전트 아님").to_string(),
                     };
                     let mut cells = vec![
                         Cell::from(format!("  {}", fold(self.is_open(&item), &p.name))),
@@ -242,24 +314,19 @@ impl App {
             self.sort_key(m, &pids)
         });
         for g in groups {
-            let gkey = match &g.kind {
-                GroupKind::Known(id) => id.clone(),
-                GroupKind::Unregistered(s) => format!("?{s}"),
-                GroupKind::Standalone => "standalone".into(),
-            };
-            let item = Item::Group(gkey.clone());
+            let item = Item::Group(group_key(g));
             let all: Vec<u32> = g.tabs.iter().flat_map(|t| m.tab_pids(t)).collect();
             let sessions: usize = g.tabs.iter().map(|t| t.sessions.len()).sum();
             let mut cells = vec![Cell::from(fold(self.is_open(&item), &g.name)), Cell::from("")];
             cells.extend(stats(&all, None));
-            let mut info = format!(
-                "{} tabs · {sessions} sessions · app {} in {} procs",
-                g.tabs.len(),
-                mb(m.private_bytes(&g.host_pids)),
-                g.host_pids.len()
+            let (tabs, app, procs) = (g.tabs.len(), mb(m.private_bytes(&g.host_pids)), g.host_pids.len());
+            let mut info = tf!(
+                lang,
+                "{tabs} tabs · {sessions} sessions · app {app} in {procs} procs",
+                "탭 {tabs}개 · 세션 {sessions}개 · 앱 {app} (프로세스 {procs}개)"
             );
             if matches!(g.kind, GroupKind::Unregistered(_)) {
-                info.push_str(" · h: register as host");
+                info.push_str(t(lang, " · h: register as host", " · h: 호스트로 등록"));
             }
             cells.push(Cell::from(info));
             rows.push(Row::new(cells).style(Style::new().fg(Color::Cyan).bold()));
@@ -301,7 +368,10 @@ impl App {
                     let sid = s
                         .session_id
                         .as_deref()
-                        .map(|id| format!("session {}", id.chars().take(13).collect::<String>()))
+                        .map(|id| {
+                            let id: String = id.chars().take(13).collect();
+                            tf!(lang, "session {id}", "세션 {id}")
+                        })
                         .unwrap_or_default();
                     cells.push(Cell::from(sid));
                     rows.push(Row::new(cells).style(Style::new().fg(Color::Green)));
@@ -318,6 +388,7 @@ impl App {
     }
 
     fn cleanup_rows(&self) -> Vec<Row<'static>> {
+        let lang = self.lang();
         self.candidates
             .iter()
             .map(|c| {
@@ -327,9 +398,9 @@ impl App {
                     "[ ]"
                 };
                 let kind = match c.kind {
-                    CandidateKind::Orphan => "orphan",
-                    CandidateKind::IdleSession => "idle",
-                    CandidateKind::DuplicateMcp => "dup mcp",
+                    CandidateKind::Orphan => t(lang, "orphan", "고아"),
+                    CandidateKind::IdleSession => t(lang, "idle", "유휴"),
+                    CandidateKind::DuplicateMcp => t(lang, "dup mcp", "중복 MCP"),
                 };
                 let style = if c.eligible {
                     Style::new().fg(Color::Yellow)
@@ -342,7 +413,7 @@ impl App {
                     Cell::from(c.label.clone()),
                     Cell::from(c.root_pid.to_string()),
                     Cell::from(mb(c.private_bytes)),
-                    Cell::from(c.reasons.join(", ")),
+                    Cell::from(c.reasons.iter().map(|r| phrase(lang, r)).collect::<Vec<_>>().join(", ")),
                 ])
                 .style(style)
             })
@@ -366,7 +437,11 @@ impl App {
                     })
                     .unwrap_or_else(|| "-".into());
                 Row::new(vec![
-                    Cell::from(if c.inbound { "in" } else { "out" }),
+                    Cell::from(if c.inbound {
+                        t(self.lang(), "in", "수신")
+                    } else {
+                        t(self.lang(), "out", "발신")
+                    }),
                     Cell::from(format!("{who}{}:{}{alias}", c.host, c.port)),
                     Cell::from(c.remote.clone()),
                     Cell::from(format!("{} {}", c.process, c.pid)),
@@ -377,23 +452,95 @@ impl App {
             .collect()
     }
 
+    fn settings_rows(&self) -> Vec<Row<'static>> {
+        let lang = self.lang();
+        let r = &self.rules;
+        SETTINGS
+            .iter()
+            .map(|s| {
+                let (name, value, about) = match s {
+                    Setting::Language => (
+                        t(lang, "Language", "언어"),
+                        match r.language {
+                            Language::En => "English".to_string(),
+                            Language::Ko => "한국어".to_string(),
+                        },
+                        t(lang, "Dashboard language", "대시보드 표시 언어"),
+                    ),
+                    Setting::AutoCleanup => (
+                        t(lang, "Automatic cleanup", "자동 정리"),
+                        match r.auto_cleanup_minutes {
+                            0 => t(lang, "off", "끔").to_string(),
+                            n => tf!(lang, "every {n} min", "{n}분마다"),
+                        },
+                        t(
+                            lang,
+                            "Ends the proposed (yellow) candidates still marked in Cleanup",
+                            "정리 화면에서 표시된 기본 제안(노란색) 후보를 종료",
+                        ),
+                    ),
+                    Setting::AutoCleanupIdle => (
+                        t(lang, "Auto cleanup: idle sessions", "자동 정리: 유휴 세션"),
+                        if r.auto_cleanup_idle {
+                            t(lang, "included", "포함")
+                        } else {
+                            t(lang, "excluded", "제외")
+                        }
+                        .to_string(),
+                        t(
+                            lang,
+                            "Also end agent sessions idle past the threshold",
+                            "유휴 기준을 넘긴 에이전트 세션도 종료",
+                        ),
+                    ),
+                    Setting::IdleMinutes => (
+                        t(lang, "Idle threshold", "유휴 기준"),
+                        tf!(lang, "{} min", "{}분", r.idle_minutes),
+                        t(
+                            lang,
+                            "A session whose processes stay under 1% CPU this long is idle",
+                            "세션 프로세스가 이 시간 동안 CPU 1% 미만이면 유휴",
+                        ),
+                    ),
+                };
+                Row::new(vec![
+                    Cell::from(name),
+                    Cell::from(format!("‹ {value} ›")),
+                    Cell::from(about),
+                ])
+            })
+            .collect()
+    }
+
     fn row_count(&self) -> usize {
         match self.view {
             View::Sessions => self.items.len(),
             View::Cleanup => self.candidates.len(),
             View::Network => self.ssh.len(),
-            View::Rules => 0,
+            View::Rules => self.rules_lines().len(),
+            View::Settings => SETTINGS.len(),
         }
     }
 
     // ---- drawing ----------------------------------------------------------------------------
 
+    fn view_titles(&self) -> Vec<String> {
+        VIEWS
+            .iter()
+            .enumerate()
+            .map(|(i, v)| format!("{} {}", i + 1, v.name(self.lang())))
+            .collect()
+    }
+
     pub fn draw(&mut self, frame: &mut Frame) {
         let [top, body, bottom] =
             Layout::vertical([Constraint::Length(1), Constraint::Min(3), Constraint::Length(1)]).areas(frame.area());
-        let [tabs_area, summary_area] = Layout::horizontal([Constraint::Length(46), Constraint::Min(10)]).areas(top);
+        let titles = self.view_titles();
+        // Each title is padded by a column on both sides, with a one-column divider between.
+        let width: usize = titles.iter().map(|t| Line::from(t.as_str()).width() + 3).sum();
+        let [tabs_area, summary_area] =
+            Layout::horizontal([Constraint::Length(width as u16), Constraint::Min(10)]).areas(top);
         self.tabs_area = tabs_area;
-        let titles = VIEWS.iter().enumerate().map(|(i, v)| format!("{} {v}", i + 1));
         frame.render_widget(
             Tabs::new(titles)
                 .select(self.view_index())
@@ -409,7 +556,14 @@ impl App {
             (body, None)
         };
         match self.view {
-            View::Rules => frame.render_widget(self.rules_text(), table_area),
+            View::Rules => self.draw_rules(frame, table_area),
+            View::Settings => {
+                let [table, info] =
+                    Layout::vertical([Constraint::Length(SETTINGS.len() as u16 + 3), Constraint::Min(6)])
+                        .areas(table_area);
+                self.draw_table(frame, table);
+                frame.render_widget(self.auto_cleanup_text(), info);
+            }
             _ => self.draw_table(frame, table_area),
         }
         if let Some(area) = detail_area {
@@ -422,8 +576,9 @@ impl App {
     }
 
     fn summary(&self) -> Line<'static> {
+        let lang = self.lang();
         let Some(m) = self.model.as_ref() else {
-            return Line::from("collecting…");
+            return Line::from(t(lang, "collecting…", "수집 중…"));
         };
         let pids: Vec<u32> = m
             .groups
@@ -443,25 +598,38 @@ impl App {
             .map(|c| c.private_bytes)
             .sum();
         let sort = match self.sort {
-            Sort::Memory => "mem",
+            Sort::Memory => t(lang, "mem", "메모리"),
             Sort::Cpu => "cpu",
-            Sort::Idle => "idle",
+            Sort::Idle => t(lang, "idle", "유휴"),
         };
+        let (mem, procs, eligible, ssh) = (mb(m.private_bytes(&pids)), pids.len(), mb(eligible), self.ssh.len());
         Line::from(vec![
-            Span::raw(format!(
-                "{sessions} sessions · {} in {} procs · ",
-                mb(m.private_bytes(&pids)),
-                pids.len()
+            Span::raw(tf!(
+                lang,
+                "{sessions} sessions · {mem} in {procs} procs · ",
+                "세션 {sessions}개 · {mem} (프로세스 {procs}개) · "
             )),
-            Span::styled(format!("cleanup {}", mb(eligible)), Style::new().fg(Color::Yellow)),
-            Span::raw(format!(" · ssh {} · sort {sort} ", self.ssh.len())),
+            Span::styled(
+                tf!(lang, "cleanup {eligible}", "정리 가능 {eligible}"),
+                Style::new().fg(Color::Yellow),
+            ),
+            Span::raw(tf!(lang, " · ssh {ssh} · sort {sort} ", " · SSH {ssh} · 정렬 {sort} ")),
         ])
     }
 
     fn draw_table(&mut self, frame: &mut Frame, area: Rect) {
+        let lang = self.lang();
         let (header, widths, rows, title): (Vec<&str>, Vec<Constraint>, Vec<Row>, &str) = match self.view {
             View::Sessions => (
-                vec!["Name", "PID", "Procs", "Private", "CPU%", "Idle", "Info"],
+                vec![
+                    t(lang, "Name", "이름"),
+                    "PID",
+                    t(lang, "Procs", "개수"),
+                    t(lang, "Private", "메모리"),
+                    "CPU%",
+                    t(lang, "Idle", "유휴"),
+                    t(lang, "Info", "정보"),
+                ],
                 vec![
                     Constraint::Min(30),
                     Constraint::Length(7),
@@ -472,10 +640,21 @@ impl App {
                     Constraint::Fill(2),
                 ],
                 self.session_rows(),
-                "Sessions by host / tab",
+                t(
+                    lang,
+                    "Sessions by host / tab · k/x/del end the selected tree · enter details",
+                    "호스트/탭별 세션 · k/x/del 선택한 트리 종료 · enter 상세",
+                ),
             ),
             View::Cleanup => (
-                vec!["", "Kind", "What", "PID", "Private", "Evidence"],
+                vec![
+                    "",
+                    t(lang, "Kind", "종류"),
+                    t(lang, "What", "대상"),
+                    "PID",
+                    t(lang, "Private", "메모리"),
+                    t(lang, "Evidence", "근거"),
+                ],
                 vec![
                     Constraint::Length(3),
                     Constraint::Length(8),
@@ -485,10 +664,21 @@ impl App {
                     Constraint::Fill(3),
                 ],
                 self.cleanup_rows(),
-                "Cleanup · space mark · x end marked (yellow = proposed)",
+                t(
+                    lang,
+                    "Cleanup · space mark · x end marked (yellow = proposed)",
+                    "정리 · space 표시 · x 표시한 항목 종료 (노란색 = 기본 제안)",
+                ),
             ),
             View::Network => (
-                vec!["Dir", "Destination", "Remote", "Process", "Up", "Owner"],
+                vec![
+                    t(lang, "Dir", "방향"),
+                    t(lang, "Destination", "목적지"),
+                    t(lang, "Remote", "원격 주소"),
+                    t(lang, "Process", "프로세스"),
+                    t(lang, "Up", "경과"),
+                    t(lang, "Owner", "소유 세션"),
+                ],
                 vec![
                     Constraint::Length(4),
                     Constraint::Fill(2),
@@ -498,7 +688,21 @@ impl App {
                     Constraint::Fill(2),
                 ],
                 self.network_rows(),
-                "SSH connections · d disconnect",
+                t(lang, "SSH connections · d disconnect", "SSH 연결 · d 연결 끊기"),
+            ),
+            View::Settings => (
+                vec![
+                    t(lang, "Setting", "설정"),
+                    t(lang, "Value", "값"),
+                    t(lang, "Description", "설명"),
+                ],
+                vec![Constraint::Length(30), Constraint::Length(18), Constraint::Fill(1)],
+                self.settings_rows(),
+                t(
+                    lang,
+                    "Settings · ←/→ enter change · saved to the rules file",
+                    "설정 · ←/→ enter 변경 · 규칙 파일에 저장",
+                ),
             ),
             View::Rules => unreachable!(),
         };
@@ -518,9 +722,9 @@ impl App {
         self.table_area = area;
         if empty {
             let msg = match self.view {
-                View::Cleanup => "nothing to clean up",
-                View::Network => "no SSH connections",
-                _ => "no agent sessions found",
+                View::Cleanup => t(lang, "nothing to clean up", "정리할 항목 없음"),
+                View::Network => t(lang, "no SSH connections", "SSH 연결 없음"),
+                _ => t(lang, "no agent sessions found", "에이전트 세션 없음"),
             };
             let inner = Rect {
                 y: area.y + 2,
@@ -539,29 +743,38 @@ impl App {
     }
 
     fn detail_text(&self) -> Paragraph<'static> {
-        let block = Block::bordered().title("Details");
+        let lang = self.lang();
+        let block = Block::bordered().title(t(lang, "Details", "상세"));
         let (Some(m), Some(pid)) = (self.model.as_ref(), self.selected_pid()) else {
-            return Paragraph::new("select a session or process").block(block);
+            return Paragraph::new(t(lang, "select a session or process", "세션이나 프로세스를 선택하세요"))
+                .block(block);
         };
         let Some(p) = m.procs.get(&pid) else {
             return Paragraph::new("").block(block);
         };
         let tree = m.subtree(pid);
+        let (name, role, age) = (
+            &p.name,
+            role_label(m, pid),
+            fmt_duration(m.taken_at.saturating_sub(p.start_time)),
+        );
+        let (procs, private, working) = (
+            tree.len(),
+            mb(m.private_bytes(&tree)),
+            mb(tree.iter().map(|q| m.procs[q].working_set).sum()),
+        );
         let mut lines = vec![
-            Line::from(format!(
-                "{} {}  [{}]  started {} ago",
-                p.name,
-                p.pid,
-                role_label(m, pid),
-                fmt_duration(m.taken_at.saturating_sub(p.start_time))
+            Line::from(tf!(
+                lang,
+                "{name} {pid}  [{role}]  started {age} ago",
+                "{name} {pid}  [{role}]  {age} 전 시작"
             )),
             Line::from(format!("cmd: {}", p.cmd.join(" "))),
             Line::from(format!("cwd: {}", p.cwd.as_deref().unwrap_or("-"))),
-            Line::from(format!(
-                "tree: {} procs · private {} · working set {}",
-                tree.len(),
-                mb(m.private_bytes(&tree)),
-                mb(tree.iter().map(|q| m.procs[q].working_set).sum())
+            Line::from(tf!(
+                lang,
+                "tree: {procs} procs · private {private} · working set {working}",
+                "트리: 프로세스 {procs}개 · 전용 {private} · 작업 집합 {working}"
             )),
         ];
         // Only the catalog's variables are collected, so all of them are worth showing.
@@ -578,34 +791,98 @@ impl App {
                 )
             })
             .collect();
-        lines.push(Line::from(format!(
-            "connections ({}): {}",
-            conns.len(),
-            conns.join(", ")
-        )));
+        let (n, list) = (conns.len(), conns.join(", "));
+        lines.push(Line::from(tf!(lang, "connections ({n}): {list}", "연결 ({n}): {list}")));
         Paragraph::new(lines).wrap(Wrap { trim: false }).block(block)
     }
 
-    fn rules_text(&self) -> Paragraph<'static> {
+    fn draw_rules(&mut self, frame: &mut Frame, area: Rect) {
+        let lines = self.rules_lines();
+        let v = self.view_index();
+        self.selected[v] = self.selected[v].min(lines.len().saturating_sub(1));
+        let title = t(
+            self.lang(),
+            "Rules · ↑↓ scroll · e edit · r reload",
+            "규칙 · ↑↓ 스크롤 · e 편집 · r 다시 읽기",
+        );
+        let text = Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .scroll((self.selected[v] as u16, 0))
+            .block(Block::bordered().title(title));
+        frame.render_widget(text, area);
+        self.table_area = area;
+    }
+
+    fn rules_lines(&self) -> Vec<Line<'static>> {
+        let lang = self.lang();
         let path = rules_path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "-".into());
         let mut installed: Vec<&str> = self.installed.iter().map(|(id, _)| id.as_str()).collect();
         installed.dedup();
+        let (idle, protect) = (
+            self.rules.idle_minutes,
+            if self.catalog.protect.is_empty() {
+                "-".into()
+            } else {
+                self.catalog.protect.join(", ")
+            },
+        );
+        // Mirrors `Model::build` and `health::candidates`.
+        let orphans: [&str; 5] = match lang {
+            Language::En => [
+                "A parent link counts only when the parent PID is alive, started no later than the child, \
+                 and is not init/launchd/systemd (which adopt orphans).",
+                "Without one the process has no parent: parent-gone (PID not running), parent-pid-reused \
+                 (PID now belongs to a newer process), adopted-by-init (Unix, after the parent exited).",
+                "An agent session whose ancestors end at a shell, agent or runtime with no host above lost \
+                 whatever started it: the whole session is an orphan.",
+                "Other parentless processes outside sessions count only when their tree holds agent machinery \
+                 (agent, REPL, MCP server, agent or host traces), or they are a runtime (node, python …) or a \
+                 shell running one. Hosts and system processes never do.",
+                "Only orphans holding agent machinery are proposed for cleanup (yellow). Programs an agent \
+                 started, such as dev servers, are shown with their origin tab only.",
+            ],
+            Language::Ko => [
+                "부모 PID가 살아 있고, 자식보다 먼저 시작됐고, init/launchd/systemd(고아를 입양하는 프로세스)가 \
+                 아닐 때만 부모로 인정합니다.",
+                "인정되는 부모가 없으면 부모 없음입니다: parent-gone(그 PID가 없음), parent-pid-reused(PID가 \
+                 더 늦게 시작된 다른 프로세스로 재사용됨), adopted-by-init(Unix에서 부모가 죽은 뒤 입양됨).",
+                "에이전트 세션의 조상이 호스트 없이 셸·에이전트·런타임에서 끊기면 세션을 띄운 쪽이 종료된 \
+                 것이므로 세션 전체가 고아입니다.",
+                "세션 밖의 부모 없는 프로세스는 트리에 에이전트 구성요소(에이전트, REPL, MCP 서버, 에이전트·호스트 \
+                 흔적)가 있거나, 런타임(node, python …)이거나 런타임을 돌리는 셸일 때만 고아로 봅니다. 호스트와 \
+                 시스템 프로세스는 제외합니다.",
+                "에이전트 구성요소가 남은 고아만 정리 후보로 기본 제안(노란색)합니다. 에이전트가 띄운 dev 서버 \
+                 같은 프로그램은 출처 탭과 함께 보여 주기만 합니다.",
+            ],
+        };
         let mut lines = vec![
-            Line::from(format!("rules file: {path}  (e: edit · r: reload)")).bold(),
-            Line::from(format!(
-                "idle after {} min · protect: {}",
-                self.rules.idle_minutes,
-                if self.catalog.protect.is_empty() {
-                    "-".into()
-                } else {
-                    self.catalog.protect.join(", ")
-                }
+            Line::from(tf!(
+                lang,
+                "rules file: {path}  (e: edit · r: reload)",
+                "규칙 파일: {path}  (e: 편집 · r: 다시 읽기)"
+            ))
+            .bold(),
+            Line::from(tf!(
+                lang,
+                "idle after {idle} min · protect: {protect}",
+                "유휴 기준 {idle}분 · 보호: {protect}"
             )),
             Line::from(""),
-            Line::from(format!("agents in catalog: {}", self.catalog.agents.len())).bold(),
-            Line::from(format!("installed here: {}", installed.join(", "))),
+            Line::from(t(lang, "How orphans are found", "고아 프로세스 판정 원리")).bold(),
+        ];
+        lines.extend(orphans.iter().map(|l| Line::from(format!("  · {l}"))));
+        let (agents, installed) = (self.catalog.agents.len(), installed.join(", "));
+        lines.extend([
+            Line::from(""),
+            Line::from(tf!(
+                lang,
+                "agents in catalog: {agents}",
+                "카탈로그의 에이전트: {agents}"
+            ))
+            .bold(),
+            Line::from(tf!(lang, "installed here: {installed}", "이 PC에 설치됨: {installed}")),
             Line::from(
                 self.catalog
                     .agents
@@ -616,7 +893,7 @@ impl App {
             )
             .dim(),
             Line::from(""),
-            Line::from(format!("hosts: {}", self.catalog.hosts.len())).bold(),
+            Line::from(tf!(lang, "hosts: {}", "호스트: {}", self.catalog.hosts.len())).bold(),
             Line::from(
                 self.catalog
                     .hosts
@@ -627,19 +904,55 @@ impl App {
             )
             .dim(),
             Line::from(""),
-            Line::from("rules.toml example:").bold(),
+            Line::from(t(lang, "rules.toml example:", "rules.toml 예시:")).bold(),
             Line::from("  idle_minutes = 30"),
             Line::from("  protect = [\"dev-server\"]"),
+            Line::from("  language = \"ko\"            # en | ko"),
+            Line::from("  auto_cleanup_minutes = 15  # 0 = off"),
+            Line::from("  auto_cleanup_idle = false"),
             Line::from("  [[agents]]  id = \"myagent\"  exe = [\"myagent\"]  cmd = [\"@me/agent\"]"),
             Line::from("  [[hosts]]   id = \"myterm\"   exe = [\"myterm\"]"),
+        ]);
+        lines
+    }
+
+    fn auto_cleanup_text(&self) -> Paragraph<'static> {
+        let lang = self.lang();
+        let now = self.model.as_ref().map(|m| m.taken_at);
+        let state = match (self.rules.auto_cleanup_minutes, self.last_auto_cleanup, now) {
+            (0, _, _) => t(lang, "automatic cleanup is off", "자동 정리 꺼짐").to_string(),
+            (minutes, Some(last), Some(now)) => {
+                let next = fmt_duration((last + minutes * 60).saturating_sub(now));
+                tf!(lang, "next automatic cleanup in {next}", "다음 자동 정리까지 {next}")
+            }
+            _ => t(lang, "waiting for the first snapshot", "첫 수집 대기 중").to_string(),
+        };
+        let last = match (&self.auto_cleanup_result, now) {
+            (Some((at, text)), Some(now)) => {
+                let ago = fmt_duration(now.saturating_sub(*at));
+                tf!(lang, "last run {ago} ago: {text}", "마지막 실행 {ago} 전: {text}")
+            }
+            _ => t(lang, "last run: -", "마지막 실행: -").to_string(),
+        };
+        let lines = vec![
+            Line::from(state).bold(),
+            Line::from(last),
+            Line::from(tf!(
+                lang,
+                "Runs only while the dashboard is open. Skips candidates seen for under \
+                 {AUTO_CLEANUP_GRACE_SECS}s, unmarked in Cleanup, or refused (hosts, system, protect rules).",
+                "대시보드가 열려 있는 동안만 동작합니다. 발견된 지 {AUTO_CLEANUP_GRACE_SECS}초가 안 된 후보, \
+                 정리 화면에서 표시를 해제한 후보, 거부 대상(호스트·시스템·보호 규칙)은 건너뜁니다."
+            ))
+            .dim(),
         ];
-        lines.push(Line::from(""));
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
-            .block(Block::bordered().title("Rules"))
+            .block(Block::bordered().title(t(lang, "Automatic cleanup", "자동 정리")))
     }
 
     fn draw_confirm(&self, frame: &mut Frame) {
+        let lang = self.lang();
         let Some(c) = &self.confirm else { return };
         let area = popup(frame.area(), 72, 18);
         frame.render_widget(Clear, area);
@@ -648,23 +961,34 @@ impl App {
             lines.push(Line::from(format!("  {} {}", t.name, t.pid)));
         }
         if c.plan.targets.len() > 10 {
-            lines.push(Line::from(format!("  … and {} more", c.plan.targets.len() - 10)));
+            let more = c.plan.targets.len() - 10;
+            lines.push(Line::from(tf!(lang, "  … and {more} more", "  … 외 {more}개")));
         }
         lines.push(Line::from(""));
-        lines.push(Line::from(format!(
-            "frees ~{} private · closes {} connections",
-            mb(c.plan.private_bytes),
-            c.plan.connections
+        let (freed, conns) = (mb(c.plan.private_bytes), c.plan.connections);
+        lines.push(Line::from(tf!(
+            lang,
+            "frees ~{freed} private · closes {conns} connections",
+            "전용 메모리 약 {freed} 확보 · 연결 {conns}개 끊김"
         )));
         if c.refusals.is_empty() {
-            lines.push(Line::from("y / enter: end   n / esc: cancel").fg(Color::Yellow));
+            lines.push(
+                Line::from(t(
+                    lang,
+                    "y / enter: end   n / esc: cancel",
+                    "y / enter: 종료   n / esc: 취소",
+                ))
+                .fg(Color::Yellow),
+            );
         } else {
             for r in &c.refusals {
-                lines.push(Line::from(format!("refused: {r}")).fg(Color::Red));
+                let r = phrase(lang, r);
+                lines.push(Line::from(tf!(lang, "refused: {r}", "거부: {r}")).fg(Color::Red));
             }
-            lines.push(Line::from("esc: close").fg(Color::Yellow));
+            lines.push(Line::from(t(lang, "esc: close", "esc: 닫기")).fg(Color::Yellow));
         }
-        frame.render_widget(Paragraph::new(lines).block(Block::bordered().title("Confirm")), area);
+        let block = Block::bordered().title(t(lang, "Confirm", "확인"));
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
     }
 
     // ---- input ------------------------------------------------------------------------------
@@ -690,10 +1014,10 @@ impl App {
 
     fn on_click(&mut self, x: u16, y: u16) {
         if y == self.tabs_area.y && x < self.tabs_area.x + self.tabs_area.width {
-            // Each title is "N Name" plus a 3-column divider.
+            // Each title is padded by a column on both sides and followed by a divider.
             let mut start = self.tabs_area.x;
-            for (i, v) in VIEWS.iter().enumerate() {
-                let end = start + v.len() as u16 + 4;
+            for (i, title) in self.view_titles().iter().enumerate() {
+                let end = start + Line::from(title.as_str()).width() as u16 + 2;
                 if x < end {
                     self.set_view(i);
                     return;
@@ -702,13 +1026,20 @@ impl App {
             }
             return;
         }
+        if self.view == View::Rules {
+            return;
+        }
         let body_top = self.table_area.y + 2; // border + header
         if y >= body_top && y < self.table_area.y + self.table_area.height.saturating_sub(1) {
             let v = self.view_index();
             let idx = self.offsets[v] + (y - body_top) as usize;
             if idx < self.row_count() {
-                if self.selected[v] == idx && self.view == View::Sessions {
-                    self.toggle_fold();
+                if self.selected[v] == idx {
+                    match self.view {
+                        View::Sessions => self.toggle_fold(),
+                        View::Settings => self.change_setting(1),
+                        _ => {}
+                    }
                 }
                 self.selected[v] = idx;
             }
@@ -716,7 +1047,7 @@ impl App {
     }
 
     fn set_view(&mut self, i: usize) {
-        self.view = [View::Sessions, View::Cleanup, View::Network, View::Rules][i];
+        self.view = VIEWS[i];
     }
 
     fn move_by(&mut self, delta: isize) {
@@ -754,9 +1085,9 @@ impl App {
         match k.code {
             KeyCode::Char('q') | KeyCode::Esc => self.quit = true,
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
-            KeyCode::Char(d @ '1'..='4') => self.set_view(d as usize - '1' as usize),
-            KeyCode::Tab => self.set_view((self.view_index() + 1) % 4),
-            KeyCode::BackTab => self.set_view((self.view_index() + 3) % 4),
+            KeyCode::Char(d @ '1'..='5') => self.set_view(d as usize - '1' as usize),
+            KeyCode::Tab => self.set_view((self.view_index() + 1) % VIEWS.len()),
+            KeyCode::BackTab => self.set_view((self.view_index() + VIEWS.len() - 1) % VIEWS.len()),
             KeyCode::Down => self.move_by(1),
             KeyCode::Up => self.move_by(-1),
             KeyCode::PageDown => self.move_by(15),
@@ -783,7 +1114,13 @@ impl App {
             }
             KeyCode::Char('x') | KeyCode::Enter if self.view == View::Cleanup => self.ask_cleanup(),
             KeyCode::Char('d') | KeyCode::Enter if self.view == View::Network => self.ask_disconnect(),
-            KeyCode::Char('k') | KeyCode::Delete if self.view == View::Sessions => self.ask_end_selected(),
+            KeyCode::Char('k') | KeyCode::Char('x') | KeyCode::Delete if self.view == View::Sessions => {
+                self.ask_end_selected()
+            }
+            KeyCode::Left if self.view == View::Settings => self.change_setting(-1),
+            KeyCode::Right | KeyCode::Enter | KeyCode::Char(' ') if self.view == View::Settings => {
+                self.change_setting(1)
+            }
             KeyCode::Char('h') if self.view == View::Sessions => self.register_host(),
             KeyCode::Char('e') if self.view == View::Rules => self.edit_rules(),
             KeyCode::Char('r') if self.view == View::Rules => self.reload_rules(),
@@ -796,7 +1133,7 @@ impl App {
     fn ask(&mut self, title: String, roots: Vec<u32>) {
         let Some(m) = self.model.as_ref() else { return };
         if roots.is_empty() {
-            self.status = "nothing selected".into();
+            self.status = t(self.lang(), "nothing selected", "선택된 항목 없음").into();
             return;
         }
         let plan = actions::plan(m, &roots);
@@ -810,6 +1147,7 @@ impl App {
     }
 
     fn ask_end_selected(&mut self) {
+        let lang = self.lang();
         let Some(m) = self.model.as_ref() else { return };
         let Some(item) = self.items.get(self.selected[0]).cloned() else {
             return;
@@ -820,29 +1158,56 @@ impl App {
                 let roots: Vec<u32> = tab
                     .map(|t| t.sessions.iter().map(|s| s.root_pid).collect())
                     .unwrap_or_default();
+                let label = tab.map(|t| t.label.as_str()).unwrap_or("?");
                 (
-                    format!(
-                        "End every agent session in tab {}?",
-                        tab.map(|t| t.label.as_str()).unwrap_or("?")
+                    tf!(
+                        lang,
+                        "End every agent session in tab {label}?",
+                        "탭 {label}의 에이전트 세션을 모두 종료할까요?"
                     ),
                     roots,
                 )
             }
             // Items come from the last Sessions draw; the process may have exited since.
             Item::Session(p) | Item::Proc(p) | Item::Orphan(p) => match m.procs.get(&p) {
-                Some(proc) => (format!("End {} ({p}) and everything under it?", proc.name), vec![p]),
+                Some(proc) => {
+                    let name = &proc.name;
+                    (
+                        tf!(
+                            lang,
+                            "End {name} ({p}) and everything under it?",
+                            "{name} ({p})와 그 하위 프로세스를 모두 종료할까요?"
+                        ),
+                        vec![p],
+                    )
+                }
                 None => {
-                    self.status = format!("process {p} already exited");
+                    self.status = tf!(lang, "process {p} already exited", "프로세스 {p}는 이미 종료됨");
                     return;
                 }
             },
             Item::OrphanHeader => (
-                "End every orphan tree?".into(),
+                t(lang, "End every orphan tree?", "고아 트리를 모두 종료할까요?").into(),
                 m.orphans.iter().map(|o| o.pid).collect(),
             ),
-            Item::Group(_) => {
-                self.status = "select a tab, session or process to end".into();
-                return;
+            // Like a tab: the agent sessions only, never the host application itself.
+            Item::Group(key) => {
+                let group = m.groups.iter().find(|g| group_key(g) == key);
+                let roots: Vec<u32> = group
+                    .iter()
+                    .flat_map(|g| &g.tabs)
+                    .flat_map(|t| &t.sessions)
+                    .map(|s| s.root_pid)
+                    .collect();
+                let name = group.map(|g| g.name.as_str()).unwrap_or("?");
+                (
+                    tf!(
+                        lang,
+                        "End every agent session in {name}?",
+                        "{name}의 에이전트 세션을 모두 종료할까요?"
+                    ),
+                    roots,
+                )
             }
         };
         self.ask(title, roots);
@@ -861,14 +1226,27 @@ impl App {
             roots.push(c.root_pid);
         }
         let n = roots.len();
-        self.ask(format!("End {n} cleanup target(s) and their children?"), roots);
+        let title = tf!(
+            self.lang(),
+            "End {n} cleanup target(s) and their children?",
+            "정리 대상 {n}개와 하위 프로세스를 종료할까요?"
+        );
+        self.ask(title, roots);
     }
 
     fn ask_disconnect(&mut self) {
         let Some(c) = self.ssh.get(self.selected[2]) else {
             return;
         };
-        let title = format!("Disconnect {}:{} by ending {} ({})?", c.host, c.port, c.process, c.pid);
+        let title = tf!(
+            self.lang(),
+            "Disconnect {}:{} by ending {} ({})?",
+            "{}:{} 연결을 끊기 위해 {} ({})를 종료할까요?",
+            c.host,
+            c.port,
+            c.process,
+            c.pid
+        );
         let pid = c.pid;
         let Some(m) = self.model.as_ref() else { return };
         let plan = actions::disconnect_plan(m, pid);
@@ -877,7 +1255,11 @@ impl App {
 
     fn run_confirmed(&mut self) {
         let Some(c) = self.confirm.take() else { return };
-        let results = actions::execute(&c.plan);
+        self.status = self.summarize(&actions::execute(&c.plan));
+        self.refresh_now = true;
+    }
+
+    fn summarize(&self, results: &[(actions::Target, Outcome)]) -> String {
         let count = |want: fn(&Outcome) -> bool| results.iter().filter(|(_, o)| want(o)).count();
         let killed = count(|o| *o == Outcome::Killed);
         let gone = count(|o| *o == Outcome::AlreadyGone);
@@ -889,23 +1271,157 @@ impl App {
                 _ => None,
             })
             .collect();
-        self.status = format!(
-            "ended {killed}, already gone {gone}, skipped (pid reused) {replaced}, failed {}",
-            failed.len()
+        let n = failed.len();
+        let mut text = tf!(
+            self.lang(),
+            "ended {killed}, already gone {gone}, skipped (pid reused) {replaced}, failed {n}",
+            "종료 {killed}, 이미 종료됨 {gone}, 건너뜀(PID 재사용) {replaced}, 실패 {n}"
         );
         if let Some(first) = failed.first() {
-            self.status.push_str(&format!(" — {first}"));
+            text.push_str(&format!(" — {first}"));
         }
-        self.refresh_now = true;
+        text
+    }
+
+    /// Candidate roots automatic cleanup would end now, and how many it leaves for refusals.
+    fn auto_cleanup_roots(&self, now: u64) -> (Vec<u32>, usize) {
+        let Some(m) = self.model.as_ref() else {
+            return (Vec::new(), 0);
+        };
+        let mut refused = 0;
+        let roots = self
+            .candidates
+            .iter()
+            .filter(|c| {
+                (c.eligible && self.marked.contains(&c.root_pid))
+                    || (self.rules.auto_cleanup_idle && c.kind == CandidateKind::IdleSession)
+            })
+            .filter(|c| {
+                self.seen_candidates
+                    .get(&c.root_pid)
+                    .is_some_and(|seen| now.saturating_sub(*seen) >= AUTO_CLEANUP_GRACE_SECS)
+            })
+            .map(|c| c.root_pid)
+            .filter(|root| {
+                let plan = actions::plan(m, &[*root]);
+                let allowed = actions::refusals(&plan, m, &self.catalog, self.self_pid).is_empty();
+                refused += usize::from(!allowed);
+                allowed
+            })
+            .collect();
+        (roots, refused)
+    }
+
+    /// Runs automatic cleanup when it is due. The interval counts from when it was switched on
+    /// (or the dashboard started), so turning it on never ends anything right away.
+    fn auto_cleanup(&mut self) {
+        let minutes = self.rules.auto_cleanup_minutes;
+        let Some(now) = self.model.as_ref().map(|m| m.taken_at) else {
+            return;
+        };
+        if minutes == 0 {
+            self.last_auto_cleanup = None;
+            return;
+        }
+        let last = *self.last_auto_cleanup.get_or_insert(now);
+        if now < last + minutes * 60 {
+            return;
+        }
+        self.last_auto_cleanup = Some(now);
+        let lang = self.lang();
+        let (roots, refused) = self.auto_cleanup_roots(now);
+        let Some(m) = self.model.as_ref() else { return };
+        let result = if roots.is_empty() {
+            tf!(
+                lang,
+                "nothing to end, {refused} refused",
+                "종료할 항목 없음, 거부 {refused}"
+            )
+        } else {
+            let plan = actions::plan(m, &roots);
+            let (trees, freed) = (roots.len(), mb(plan.private_bytes));
+            let summary = self.summarize(&actions::execute(&plan));
+            self.refresh_now = true;
+            let result = tf!(
+                lang,
+                "{trees} tree(s), ~{freed}, {refused} refused: {summary}",
+                "트리 {trees}개, 약 {freed}, 거부 {refused}: {summary}"
+            );
+            self.status = tf!(lang, "automatic cleanup: {result}", "자동 정리: {result}");
+            result
+        };
+        self.auto_cleanup_result = Some((now, result));
+    }
+
+    /// Changes the selected setting, applies it and saves it to the rules file.
+    fn change_setting(&mut self, step: isize) {
+        let Some(setting) = SETTINGS.get(self.selected[4]) else {
+            return;
+        };
+        let r = &mut self.rules;
+        let (key, value) = match setting {
+            Setting::Language => {
+                r.language = match r.language {
+                    Language::En => Language::Ko,
+                    Language::Ko => Language::En,
+                };
+                let code = match r.language {
+                    Language::En => "en",
+                    Language::Ko => "ko",
+                };
+                ("language", format!("\"{code}\""))
+            }
+            Setting::AutoCleanup => {
+                r.auto_cleanup_minutes = cycle(&AUTO_CLEANUP_MINUTES, r.auto_cleanup_minutes, step);
+                self.last_auto_cleanup = None;
+                ("auto_cleanup_minutes", r.auto_cleanup_minutes.to_string())
+            }
+            Setting::AutoCleanupIdle => {
+                r.auto_cleanup_idle = !r.auto_cleanup_idle;
+                ("auto_cleanup_idle", r.auto_cleanup_idle.to_string())
+            }
+            Setting::IdleMinutes => {
+                r.idle_minutes = cycle(&IDLE_MINUTES, r.idle_minutes, step);
+                ("idle_minutes", r.idle_minutes.to_string())
+            }
+        };
+        // Starts the interval now, from the current snapshot.
+        self.auto_cleanup();
+        let lang = self.lang();
+        self.status = match Rules::save_setting(key, &value) {
+            Ok(path) => {
+                let path = path.display();
+                tf!(
+                    lang,
+                    "saved {key} = {value} to {path}",
+                    "{key} = {value} 저장됨: {path}"
+                )
+            }
+            Err(e) => tf!(
+                lang,
+                "applied for this run only, not saved: {e}",
+                "이번 실행에만 적용됨, 저장 실패: {e}"
+            ),
+        };
     }
 
     fn register_host(&mut self) {
         let Some(Item::Group(key)) = self.items.get(self.selected[0]).cloned() else {
-            self.status = "select an unregistered host group to register it".into();
+            self.status = t(
+                self.lang(),
+                "select an unregistered host group to register it",
+                "등록할 미등록 호스트 그룹을 선택하세요",
+            )
+            .into();
             return;
         };
         let Some(exe) = key.strip_prefix('?') else {
-            self.status = "this group is already a known host".into();
+            self.status = t(
+                self.lang(),
+                "this group is already a known host",
+                "이미 등록된 호스트입니다",
+            )
+            .into();
             return;
         };
         // Appended to the file, then everything reloaded: edits made in the editor since the
@@ -913,9 +1429,14 @@ impl App {
         match Rules::register_host(exe) {
             Ok(path) => {
                 self.reload_rules();
-                self.status = format!("registered {exe} as a host in {}", path.display());
+                let path = path.display();
+                self.status = tf!(
+                    self.lang(),
+                    "registered {exe} as a host in {path}",
+                    "{exe}를 호스트로 등록함: {path}"
+                );
             }
-            Err(e) => self.status = format!("could not register host: {e}"),
+            Err(e) => self.status = tf!(self.lang(), "could not register host: {e}", "호스트 등록 실패: {e}"),
         }
     }
 
@@ -924,7 +1445,11 @@ impl App {
         if !path.exists()
             && let Err(e) = self.rules.save()
         {
-            self.status = format!("could not create rules file: {e}");
+            self.status = tf!(
+                self.lang(),
+                "could not create rules file: {e}",
+                "규칙 파일을 만들지 못함: {e}"
+            );
             return;
         }
         // A GUI editor: a terminal one would fight the dashboard for the screen.
@@ -936,8 +1461,15 @@ impl App {
             ("xdg-open", &[])
         };
         match std::process::Command::new(program).args(args).arg(&path).spawn() {
-            Ok(_) => self.status = format!("editing {}; press r to reload after saving", path.display()),
-            Err(e) => self.status = format!("could not open editor: {e}"),
+            Ok(_) => {
+                let path = path.display();
+                self.status = tf!(
+                    self.lang(),
+                    "editing {path}; press r to reload after saving",
+                    "{path} 편집 중, 저장한 뒤 r로 다시 읽으세요"
+                )
+            }
+            Err(e) => self.status = tf!(self.lang(), "could not open editor: {e}", "편집기를 열지 못함: {e}"),
         }
     }
 
@@ -946,9 +1478,9 @@ impl App {
             Ok(rules) => {
                 self.rules = rules;
                 self.rebuild_catalog();
-                self.status = "rules reloaded".into();
+                self.status = t(self.lang(), "rules reloaded", "규칙을 다시 읽음").into();
             }
-            Err(e) => self.status = format!("rules not reloaded: {e}"),
+            Err(e) => self.status = tf!(self.lang(), "rules not reloaded: {e}", "규칙을 다시 읽지 못함: {e}"),
         }
     }
 
@@ -987,6 +1519,23 @@ fn push_procs(m: &Model, root: u32, indent: usize, rows: &mut Vec<Row<'static>>,
             .style(style),
         );
         items.push(Item::Proc(pid));
+    }
+}
+
+fn group_key(g: &Group) -> String {
+    match &g.kind {
+        GroupKind::Known(id) => id.clone(),
+        GroupKind::Unregistered(s) => format!("?{s}"),
+        GroupKind::Standalone => "standalone".into(),
+    }
+}
+
+/// The choice `step` places after `current`, wrapping around; a value that is not among the
+/// choices (typed into the rules file) moves to the first one.
+fn cycle(choices: &[u64], current: u64, step: isize) -> u64 {
+    match choices.iter().position(|c| *c == current) {
+        Some(i) => choices[(i as isize + step).rem_euclid(choices.len() as isize) as usize],
+        None => choices[0],
     }
 }
 
@@ -1123,7 +1672,129 @@ mod tests {
         key(&mut app, KeyCode::Char('3'));
         assert!(screen(&mut app).contains("no SSH connections"));
         key(&mut app, KeyCode::Char('4'));
-        assert!(screen(&mut app).contains("agents in catalog: 45"));
+        let s = screen(&mut app);
+        assert!(s.contains("agents in catalog: 45"), "{s}");
+        assert!(s.contains("How orphans are found"));
+        key(&mut app, KeyCode::Char('5'));
+        let s = screen(&mut app);
+        assert!(s.contains("automatic cleanup is off"), "{s}");
+    }
+
+    fn korean_app() -> App {
+        let snapshot: Snapshot =
+            serde_json::from_str(include_str!("../../core/tests/fixtures/orca_2026-10-29.json")).unwrap();
+        let rules = Rules {
+            language: Language::Ko,
+            ..Rules::default()
+        };
+        let mut app = App::new(rules, Vec::new());
+        app.apply(snapshot);
+        app
+    }
+
+    #[test]
+    fn renders_korean_and_tab_clicks_follow_wide_titles() {
+        let mut app = korean_app();
+        // Wide characters span two cells, so check characters rather than the joined text.
+        let s = screen(&mut app);
+        assert!(s.contains('고') && s.contains('아') && s.contains('세'), "{s}");
+        assert!(!s.contains("No parent"));
+
+        let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let buf = terminal.backend().buffer();
+        let x = (0..buf.area.width).find(|x| buf[(*x, 0)].symbol() == "5").unwrap();
+        let click = |x| {
+            Event::Mouse(crossterm::event::MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: x,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            })
+        };
+        app.on_event(click(x + 3));
+        assert!(app.view == View::Settings);
+        let x = (0..buf.area.width).find(|x| buf[(*x, 0)].symbol() == "4").unwrap();
+        app.on_event(click(x));
+        assert!(app.view == View::Rules);
+        let s = screen(&mut app);
+        assert!(s.contains('판') && s.contains('정'), "{s}");
+    }
+
+    #[test]
+    fn auto_cleanup_waits_for_the_grace_period_and_honors_unmarking() {
+        let mut app = app();
+        app.rules.auto_cleanup_minutes = 5;
+        let now = app.model.as_ref().unwrap().taken_at;
+        // The fixture's orphans are programs agents started, shown but not proposed: propose
+        // one as if it held agent machinery.
+        assert!(app.candidates.len() > 1);
+        assert!(app.candidates.iter().all(|c| !c.eligible));
+        let proposed = app.candidates[0].root_pid;
+        app.candidates[0].eligible = true;
+        app.marked.insert(proposed);
+        assert_eq!(app.auto_cleanup_roots(now).0, Vec::<u32>::new(), "just seen");
+        assert_eq!(
+            app.auto_cleanup_roots(now + AUTO_CLEANUP_GRACE_SECS).0,
+            [proposed],
+            "proposed only, not informational candidates"
+        );
+        app.marked.remove(&proposed);
+        assert_eq!(
+            app.auto_cleanup_roots(now + AUTO_CLEANUP_GRACE_SECS).0,
+            Vec::<u32>::new()
+        );
+    }
+
+    #[test]
+    fn auto_cleanup_interval_starts_when_switched_on() {
+        let mut app = app();
+        app.rules.auto_cleanup_minutes = 5;
+        app.auto_cleanup();
+        let now = app.model.as_ref().unwrap().taken_at;
+        assert_eq!(app.last_auto_cleanup, Some(now));
+        assert!(app.auto_cleanup_result.is_none(), "nothing runs when switched on");
+        app.rules.auto_cleanup_minutes = 0;
+        app.auto_cleanup();
+        assert_eq!(app.last_auto_cleanup, None);
+    }
+
+    #[test]
+    fn settings_cycle_through_their_choices() {
+        assert_eq!(cycle(&AUTO_CLEANUP_MINUTES, 0, 1), 5);
+        assert_eq!(cycle(&AUTO_CLEANUP_MINUTES, 0, -1), 60);
+        assert_eq!(cycle(&AUTO_CLEANUP_MINUTES, 60, 1), 0);
+        assert_eq!(
+            cycle(&IDLE_MINUTES, 45, 1),
+            10,
+            "a hand-typed value moves to the first choice"
+        );
+    }
+
+    #[test]
+    fn ending_a_host_group_targets_its_sessions_only() {
+        let mut app = app();
+        screen(&mut app);
+        let group = app.items.iter().position(|i| matches!(i, Item::Group(_))).unwrap();
+        app.selected[0] = group;
+        key(&mut app, KeyCode::Char('x'));
+        let m = app.model.as_ref().unwrap();
+        let Item::Group(gkey) = &app.items[group] else {
+            unreachable!()
+        };
+        let g = m.groups.iter().find(|g| group_key(g) == *gkey).unwrap();
+        let confirm = app.confirm.as_ref().unwrap();
+        let sessions: Vec<u32> = g.tabs.iter().flat_map(|t| &t.sessions).map(|s| s.root_pid).collect();
+        assert!(
+            sessions
+                .iter()
+                .all(|s| confirm.plan.targets.iter().any(|t| t.pid == *s))
+        );
+        assert!(
+            confirm.plan.targets.iter().all(|t| !g.host_pids.contains(&t.pid)),
+            "the host application stays"
+        );
+        assert!(confirm.refusals.is_empty(), "{:?}", confirm.refusals);
     }
 
     #[test]
