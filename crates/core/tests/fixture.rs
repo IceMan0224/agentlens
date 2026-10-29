@@ -1,15 +1,16 @@
-//! Classification of a real snapshot: 11 Orca tabs (claude, codex, opencode), a claude run by
-//! the ego browser, and leftovers from agents that ran dev servers in the background.
+//! Classification of a made-up snapshot shaped like a real one: 11 Orca tabs (claude, codex,
+//! opencode), a claude run by the ego browser, a dev server an agent left running, and an MCP
+//! server tree whose session was closed.
 
 use agentlens_core::Snapshot;
 use agentlens_core::catalog::Catalog;
-use agentlens_core::health::{Candidate, CandidateKind, History, candidates};
+use agentlens_core::health::{Candidate, CandidateKind, History, Policy, candidates};
 use agentlens_core::model::{GroupKind, HelperKind, Model, OrphanReason, Role};
 use agentlens_core::origin::Origins;
 use agentlens_core::rules::Rules;
 
 fn model() -> Model {
-    let text = include_str!("fixtures/orca_2026-10-29.json");
+    let text = include_str!("fixtures/sample.json");
     let snapshot: Snapshot = serde_json::from_str(text).unwrap();
     Model::build(snapshot, &Catalog::builtin())
 }
@@ -41,11 +42,7 @@ fn groups_sessions_by_host_and_orca_tab() {
     assert_eq!(session_count(&m, "ego", "claude"), 1);
     assert!(orca.tabs.iter().all(|t| t.key.starts_with("orca:")));
 
-    let tab = orca
-        .tabs
-        .iter()
-        .find(|t| t.label == "acme/web-app")
-        .unwrap();
+    let tab = orca.tabs.iter().find(|t| t.label == "acme/web-app").unwrap();
     assert_eq!(tab.sessions[0].root_pid, 33472);
     assert_eq!(
         tab.sessions[0].session_id.as_deref(),
@@ -73,7 +70,7 @@ fn helpers_are_classified() {
 }
 
 #[test]
-fn programs_started_by_agents_are_shown_but_not_proposed() {
+fn programs_started_by_agents_are_shown_and_closed_sessions_leftovers_proposed() {
     let m = model();
     let dev = m
         .orphans
@@ -89,8 +86,23 @@ fn programs_started_by_agents_are_shown_but_not_proposed() {
     history.update(&m);
     let found = found(&m, &history);
     let orphans: Vec<_> = found.iter().filter(|c| c.kind == CandidateKind::Orphan).collect();
-    assert!(orphans.iter().any(|c| c.root_pid == 35728));
-    assert!(orphans.iter().all(|c| !c.eligible), "nothing here is agent machinery");
+    let dev = orphans.iter().find(|c| c.root_pid == 35728).unwrap();
+    assert!(!dev.eligible, "an agent started it, but nothing says its session ended");
+    // Its environment names a Claude Code session that is no longer running. A report sees one
+    // moment, so it does not wait for the owner to stay gone.
+    let mut origins = Origins::default();
+    origins.update(&m, &Catalog::builtin());
+    let policy = Policy {
+        owner_gone_grace: 0,
+        ..Rules::default().policy()
+    };
+    let report = candidates(&m, &history, &origins, &policy, Default::default);
+    let mcp = report.iter().find(|c| c.root_pid == 25480).unwrap();
+    assert!(
+        mcp.eligible && mcp.reasons.iter().any(|r| r == "owner-gone"),
+        "{:?}",
+        mcp.reasons
+    );
     // Rancher Desktop also inherited Orca's environment but is not a runtime: not reported.
     assert!(!m.orphans.iter().any(|o| m.procs[&o.pid].name.starts_with("Rancher")));
 }
@@ -110,7 +122,7 @@ fn duplicate_mcp_servers_are_reported() {
 
 #[test]
 fn script_agents_and_providers_are_detected() {
-    let mut snapshot: Snapshot = serde_json::from_str(include_str!("fixtures/orca_2026-10-29.json")).unwrap();
+    let mut snapshot: Snapshot = serde_json::from_str(include_str!("fixtures/sample.json")).unwrap();
     // Reuse a codex launcher's place in the tree for a zcode and a GLM-backed claude.
     let launcher = snapshot.processes.iter_mut().find(|p| p.pid == 42436).unwrap();
     launcher.cmd = vec![

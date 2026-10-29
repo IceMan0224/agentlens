@@ -177,7 +177,7 @@ tab_env = "MYTERM_TAB"            # 탭마다 다른 값을 넣어 주는 환경
 cargo test
 ```
 
-- `crates/core/tests/fixture.rs`: 실제 스냅샷(Orca 탭 11개)으로 묶음·판정 회귀 테스트
+- `crates/core/tests/fixture.rs`: 실제와 같은 모양으로 지어낸 스냅샷(Orca 탭 11개, 끝난 세션이 남긴 MCP 서버 등)으로 묶음·판정 회귀 테스트
 - `crates/core/tests/unix_model.rs`: macOS 형태의 트리(Terminal.app, SSH 로그인, launchd 입양 고아)
 - `crates/core/tests/origin.rs`: 끝난 세션이 남긴 것(계보·출생 기록, 통신 채널 끊김, 유예 시간, PID 재사용, 중첩 세션, 예외 규칙)
 - `crates/core/src/sys/*`: OS별 수집 단위 테스트(자기 프로세스 대조, `/proc/stat`·`KERN_PROCARGS2` 파싱)

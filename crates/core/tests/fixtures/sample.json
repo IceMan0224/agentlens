@@ -1,0 +1,2326 @@
+{
+ "taken_at": 1800000000,
+ "processes": [
+  {
+   "pid": 4,
+   "ppid": null,
+   "name": "System",
+   "exe": null,
+   "cmd": [],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799222400,
+   "cpu": 0.0,
+   "private_bytes": 104857,
+   "working_set": 167772
+  },
+  {
+   "pid": 600,
+   "ppid": 4,
+   "name": "smss.exe",
+   "exe": "C:\\Windows\\System32\\smss.exe",
+   "cmd": [],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799222400,
+   "cpu": 0.0,
+   "private_bytes": 1048576,
+   "working_set": 1677721
+  },
+  {
+   "pid": 700,
+   "ppid": 600,
+   "name": "csrss.exe",
+   "exe": "C:\\Windows\\System32\\csrss.exe",
+   "cmd": [],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799222400,
+   "cpu": 0.0,
+   "private_bytes": 2097152,
+   "working_set": 3355443
+  },
+  {
+   "pid": 710,
+   "ppid": 600,
+   "name": "wininit.exe",
+   "exe": "C:\\Windows\\System32\\wininit.exe",
+   "cmd": [],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799222400,
+   "cpu": 0.0,
+   "private_bytes": 1572864,
+   "working_set": 2516582
+  },
+  {
+   "pid": 720,
+   "ppid": 710,
+   "name": "services.exe",
+   "exe": "C:\\Windows\\System32\\services.exe",
+   "cmd": [],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799222400,
+   "cpu": 0.0,
+   "private_bytes": 6291456,
+   "working_set": 10066329
+  },
+  {
+   "pid": 730,
+   "ppid": 720,
+   "name": "svchost.exe",
+   "exe": "C:\\Windows\\System32\\svchost.exe",
+   "cmd": [
+    "svchost.exe",
+    "-k",
+    "netsvcs"
+   ],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799222400,
+   "cpu": 0.0,
+   "private_bytes": 31457280,
+   "working_set": 50331648
+  },
+  {
+   "pid": 900,
+   "ppid": 880,
+   "name": "explorer.exe",
+   "exe": "C:\\Windows\\explorer.exe",
+   "cmd": [
+    "C:\\Windows\\explorer.exe"
+   ],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799827200,
+   "cpu": 0.4,
+   "private_bytes": 125829120,
+   "working_set": 201326592
+  },
+  {
+   "pid": 1000,
+   "ppid": 900,
+   "name": "Orca.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+   "cmd": [
+    "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe"
+   ],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799892000,
+   "cpu": 1.1,
+   "private_bytes": 440401920,
+   "working_set": 704643072
+  },
+  {
+   "pid": 1001,
+   "ppid": 1000,
+   "name": "Orca.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+   "cmd": [
+    "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+    "--type=gpu-process"
+   ],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799892000,
+   "cpu": 0.0,
+   "private_bytes": 188743680,
+   "working_set": 301989888
+  },
+  {
+   "pid": 1002,
+   "ppid": 1000,
+   "name": "Orca.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+   "cmd": [
+    "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+    "--type=utility"
+   ],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799892000,
+   "cpu": 0.0,
+   "private_bytes": 41943040,
+   "working_set": 67108864
+  },
+  {
+   "pid": 1003,
+   "ppid": 1000,
+   "name": "Orca.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+   "cmd": [
+    "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+    "--type=renderer"
+   ],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799892000,
+   "cpu": 0.6,
+   "private_bytes": 545259520,
+   "working_set": 872415232
+  },
+  {
+   "pid": 1004,
+   "ppid": 1000,
+   "name": "Orca.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+   "cmd": [
+    "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+    "--type=renderer"
+   ],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799892000,
+   "cpu": 0.6,
+   "private_bytes": 325058560,
+   "working_set": 520093696
+  },
+  {
+   "pid": 1005,
+   "ppid": 1000,
+   "name": "Orca.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+   "cmd": [
+    "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+    "--type=utility"
+   ],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799892000,
+   "cpu": 0.0,
+   "private_bytes": 36700160,
+   "working_set": 58720256
+  },
+  {
+   "pid": 1006,
+   "ppid": 1000,
+   "name": "Orca.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+   "cmd": [
+    "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+    "--type=crashpad-handler"
+   ],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799892000,
+   "cpu": 0.0,
+   "private_bytes": 8388608,
+   "working_set": 13421772
+  },
+  {
+   "pid": 1007,
+   "ppid": 1000,
+   "name": "Orca.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+   "cmd": [
+    "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\Orca.exe",
+    "C:\\Users\\dev\\AppData\\Local\\Programs\\orca\\resources\\app.asar.unpacked\\daemon-entry.js"
+   ],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799892000,
+   "cpu": 0.3,
+   "private_bytes": 99614720,
+   "working_set": 159383552
+  },
+  {
+   "pid": 10000,
+   "ppid": 1007,
+   "name": "pwsh.exe",
+   "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": [
+    "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "-NoLogo"
+   ],
+   "cwd": "C:\\work\\acme\\web-app",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "c1933913-ddd9-50fb-b872-e2433932ae80"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "89746be0-39e1-5bfb-90ff-e04002cad4aa::C:\\work\\acme\\web-app"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_208e2e6d-02a1-5cb0-b2bd-1f03557d562a"
+    ]
+   ],
+   "start_time": 1799928000,
+   "cpu": 0.0,
+   "private_bytes": 73400320,
+   "working_set": 117440512
+  },
+  {
+   "pid": 10001,
+   "ppid": 10000,
+   "name": "conhost.exe",
+   "exe": "C:\\Windows\\system32\\conhost.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\conhost.exe",
+    "0x4"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "c1933913-ddd9-50fb-b872-e2433932ae80"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "89746be0-39e1-5bfb-90ff-e04002cad4aa::C:\\work\\acme\\web-app"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_208e2e6d-02a1-5cb0-b2bd-1f03557d562a"
+    ]
+   ],
+   "start_time": 1799928000,
+   "cpu": 0.0,
+   "private_bytes": 8388608,
+   "working_set": 13421772
+  },
+  {
+   "pid": 33472,
+   "ppid": 10000,
+   "name": "claude.exe",
+   "exe": "C:\\Users\\dev\\.local\\bin\\claude.exe",
+   "cmd": [
+    "claude",
+    "--resume",
+    "849478ea-950d-559b-8007-9eea0990a450"
+   ],
+   "cwd": "C:\\work\\acme\\web-app",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "c1933913-ddd9-50fb-b872-e2433932ae80"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "89746be0-39e1-5bfb-90ff-e04002cad4aa::C:\\work\\acme\\web-app"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_208e2e6d-02a1-5cb0-b2bd-1f03557d562a"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "97e3c50e-cca9-59fa-8f7c-fe3671d53374"
+    ]
+   ],
+   "start_time": 1799978400,
+   "cpu": 3.2,
+   "private_bytes": 671088640,
+   "working_set": 1073741824
+  },
+  {
+   "pid": 10010,
+   "ppid": 1007,
+   "name": "pwsh.exe",
+   "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": [
+    "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "-NoLogo"
+   ],
+   "cwd": "C:\\work\\acme\\api",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "f3f1ecef-7ca7-526b-9a8c-a45ef11e8d69"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "6645f7ee-b0ea-54b5-a7ad-390ad77db85c::C:\\work\\acme\\api"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_787b5e47-d42b-5a58-9a15-89d97d363eb6"
+    ]
+   ],
+   "start_time": 1799928600,
+   "cpu": 0.0,
+   "private_bytes": 73400320,
+   "working_set": 117440512
+  },
+  {
+   "pid": 10011,
+   "ppid": 10010,
+   "name": "conhost.exe",
+   "exe": "C:\\Windows\\system32\\conhost.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\conhost.exe",
+    "0x4"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "f3f1ecef-7ca7-526b-9a8c-a45ef11e8d69"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "6645f7ee-b0ea-54b5-a7ad-390ad77db85c::C:\\work\\acme\\api"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_787b5e47-d42b-5a58-9a15-89d97d363eb6"
+    ]
+   ],
+   "start_time": 1799928600,
+   "cpu": 0.0,
+   "private_bytes": 8388608,
+   "working_set": 13421772
+  },
+  {
+   "pid": 33868,
+   "ppid": 10010,
+   "name": "claude.exe",
+   "exe": "C:\\Users\\dev\\.local\\bin\\claude.exe",
+   "cmd": [
+    "claude",
+    "--resume",
+    "6e7c8900-4f2c-5a2a-a132-8dbd683e5191"
+   ],
+   "cwd": "C:\\work\\acme\\api",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "f3f1ecef-7ca7-526b-9a8c-a45ef11e8d69"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "6645f7ee-b0ea-54b5-a7ad-390ad77db85c::C:\\work\\acme\\api"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_787b5e47-d42b-5a58-9a15-89d97d363eb6"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "a3323e11-33c3-5ea9-bfdf-087f801705de"
+    ]
+   ],
+   "start_time": 1799978900,
+   "cpu": 0.4,
+   "private_bytes": 429916160,
+   "working_set": 687865856
+  },
+  {
+   "pid": 10020,
+   "ppid": 1007,
+   "name": "pwsh.exe",
+   "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": [
+    "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "-NoLogo"
+   ],
+   "cwd": "C:\\work\\acme\\docs",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "2b0c8749-2161-5d90-be86-cd83254bfdb2"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "1550e1fe-46f4-5059-8346-d581bfcb9059::C:\\work\\acme\\docs"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_cb3e4df3-8c1b-5060-bb7d-66dc6fff9a2b"
+    ]
+   ],
+   "start_time": 1799929200,
+   "cpu": 0.0,
+   "private_bytes": 73400320,
+   "working_set": 117440512
+  },
+  {
+   "pid": 10021,
+   "ppid": 10020,
+   "name": "conhost.exe",
+   "exe": "C:\\Windows\\system32\\conhost.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\conhost.exe",
+    "0x4"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "2b0c8749-2161-5d90-be86-cd83254bfdb2"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "1550e1fe-46f4-5059-8346-d581bfcb9059::C:\\work\\acme\\docs"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_cb3e4df3-8c1b-5060-bb7d-66dc6fff9a2b"
+    ]
+   ],
+   "start_time": 1799929200,
+   "cpu": 0.0,
+   "private_bytes": 8388608,
+   "working_set": 13421772
+  },
+  {
+   "pid": 29888,
+   "ppid": 10020,
+   "name": "claude.exe",
+   "exe": "C:\\Users\\dev\\.local\\bin\\claude.exe",
+   "cmd": [
+    "claude"
+   ],
+   "cwd": "C:\\work\\acme\\docs",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "2b0c8749-2161-5d90-be86-cd83254bfdb2"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "1550e1fe-46f4-5059-8346-d581bfcb9059::C:\\work\\acme\\docs"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_cb3e4df3-8c1b-5060-bb7d-66dc6fff9a2b"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "e6b1e285-4f62-5b71-8510-c1708f54e0e1"
+    ]
+   ],
+   "start_time": 1799979400,
+   "cpu": 0.0,
+   "private_bytes": 314572800,
+   "working_set": 503316480
+  },
+  {
+   "pid": 10030,
+   "ppid": 1007,
+   "name": "pwsh.exe",
+   "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": [
+    "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "-NoLogo"
+   ],
+   "cwd": "C:\\work\\lab\\agentlens",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "ddcad5b6-fbd9-53c2-9f23-8a9731927220"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "b1460c11-23ae-5d59-a0d7-615cb9a1aa36::C:\\work\\lab\\agentlens"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_63ecc79d-febe-5ae7-a685-67cc49e86e61"
+    ]
+   ],
+   "start_time": 1799929800,
+   "cpu": 0.0,
+   "private_bytes": 73400320,
+   "working_set": 117440512
+  },
+  {
+   "pid": 10031,
+   "ppid": 10030,
+   "name": "conhost.exe",
+   "exe": "C:\\Windows\\system32\\conhost.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\conhost.exe",
+    "0x4"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "ddcad5b6-fbd9-53c2-9f23-8a9731927220"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "b1460c11-23ae-5d59-a0d7-615cb9a1aa36::C:\\work\\lab\\agentlens"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_63ecc79d-febe-5ae7-a685-67cc49e86e61"
+    ]
+   ],
+   "start_time": 1799929800,
+   "cpu": 0.0,
+   "private_bytes": 8388608,
+   "working_set": 13421772
+  },
+  {
+   "pid": 43508,
+   "ppid": 10030,
+   "name": "claude.exe",
+   "exe": "C:\\Users\\dev\\.local\\bin\\claude.exe",
+   "cmd": [
+    "claude"
+   ],
+   "cwd": "C:\\work\\lab\\agentlens",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "ddcad5b6-fbd9-53c2-9f23-8a9731927220"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "b1460c11-23ae-5d59-a0d7-615cb9a1aa36::C:\\work\\lab\\agentlens"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_63ecc79d-febe-5ae7-a685-67cc49e86e61"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "c40d2b98-fd01-5302-bcf4-2ca71ceb8bd0"
+    ]
+   ],
+   "start_time": 1799979900,
+   "cpu": 1.4,
+   "private_bytes": 587202560,
+   "working_set": 939524096
+  },
+  {
+   "pid": 10040,
+   "ppid": 1007,
+   "name": "pwsh.exe",
+   "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": [
+    "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "-NoLogo"
+   ],
+   "cwd": "C:\\work\\acme\\mobile",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "fea5b01c-7966-5d25-8b5a-5edceabbe180"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "aec1e42b-3031-59fa-b5b4-15084564b597::C:\\work\\acme\\mobile"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_945f6916-90ab-5459-a466-fbfcdf0ebaba"
+    ]
+   ],
+   "start_time": 1799930400,
+   "cpu": 0.0,
+   "private_bytes": 73400320,
+   "working_set": 117440512
+  },
+  {
+   "pid": 10041,
+   "ppid": 10040,
+   "name": "conhost.exe",
+   "exe": "C:\\Windows\\system32\\conhost.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\conhost.exe",
+    "0x4"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "fea5b01c-7966-5d25-8b5a-5edceabbe180"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "aec1e42b-3031-59fa-b5b4-15084564b597::C:\\work\\acme\\mobile"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_945f6916-90ab-5459-a466-fbfcdf0ebaba"
+    ]
+   ],
+   "start_time": 1799930400,
+   "cpu": 0.0,
+   "private_bytes": 8388608,
+   "working_set": 13421772
+  },
+  {
+   "pid": 17488,
+   "ppid": 10040,
+   "name": "claude.exe",
+   "exe": "C:\\Users\\dev\\.local\\bin\\claude.exe",
+   "cmd": [
+    "claude",
+    "--resume",
+    "c713aab9-f7b7-515e-90d0-c275b6343da2"
+   ],
+   "cwd": "C:\\work\\acme\\mobile",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "fea5b01c-7966-5d25-8b5a-5edceabbe180"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "aec1e42b-3031-59fa-b5b4-15084564b597::C:\\work\\acme\\mobile"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_945f6916-90ab-5459-a466-fbfcdf0ebaba"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "747347d1-7e39-5055-9d5b-dd160d2dde3d"
+    ]
+   ],
+   "start_time": 1799980400,
+   "cpu": 0.0,
+   "private_bytes": 398458880,
+   "working_set": 637534208
+  },
+  {
+   "pid": 10050,
+   "ppid": 1007,
+   "name": "pwsh.exe",
+   "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": [
+    "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "-NoLogo"
+   ],
+   "cwd": "C:\\work\\demo\\game",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "85b06a8b-8d38-54c4-b89e-19c159f1aa2f"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "6659516f-0722-5695-a5b5-85fe25a39120::C:\\work\\demo\\game"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_ce6ad815-31f2-59c7-988f-48bf2b8a4ca8"
+    ]
+   ],
+   "start_time": 1799931000,
+   "cpu": 0.0,
+   "private_bytes": 73400320,
+   "working_set": 117440512
+  },
+  {
+   "pid": 10051,
+   "ppid": 10050,
+   "name": "conhost.exe",
+   "exe": "C:\\Windows\\system32\\conhost.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\conhost.exe",
+    "0x4"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "85b06a8b-8d38-54c4-b89e-19c159f1aa2f"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "6659516f-0722-5695-a5b5-85fe25a39120::C:\\work\\demo\\game"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_ce6ad815-31f2-59c7-988f-48bf2b8a4ca8"
+    ]
+   ],
+   "start_time": 1799931000,
+   "cpu": 0.0,
+   "private_bytes": 8388608,
+   "working_set": 13421772
+  },
+  {
+   "pid": 28624,
+   "ppid": 10050,
+   "name": "node.exe",
+   "exe": "C:\\Program Files\\nodejs\\node.exe",
+   "cmd": [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\bin\\codex.js"
+   ],
+   "cwd": "C:\\work\\demo\\game",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "85b06a8b-8d38-54c4-b89e-19c159f1aa2f"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "6659516f-0722-5695-a5b5-85fe25a39120::C:\\work\\demo\\game"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_ce6ad815-31f2-59c7-988f-48bf2b8a4ca8"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "d6467104-2413-56f9-bd2c-fe8fce5474aa"
+    ]
+   ],
+   "start_time": 1799980900,
+   "cpu": 0.6,
+   "private_bytes": 94371840,
+   "working_set": 150994944
+  },
+  {
+   "pid": 10060,
+   "ppid": 1007,
+   "name": "pwsh.exe",
+   "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": [
+    "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "-NoLogo"
+   ],
+   "cwd": "C:\\work\\demo\\game-server",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "a336a8d1-2bab-51be-902d-736db95c2d84"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "7d9a8ece-66b0-55a7-8fed-9713a7009a89::C:\\work\\demo\\game-server"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_0589b74a-d93e-566f-b3c3-5f1dcfb1c18a"
+    ]
+   ],
+   "start_time": 1799931600,
+   "cpu": 0.0,
+   "private_bytes": 73400320,
+   "working_set": 117440512
+  },
+  {
+   "pid": 10061,
+   "ppid": 10060,
+   "name": "conhost.exe",
+   "exe": "C:\\Windows\\system32\\conhost.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\conhost.exe",
+    "0x4"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "a336a8d1-2bab-51be-902d-736db95c2d84"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "7d9a8ece-66b0-55a7-8fed-9713a7009a89::C:\\work\\demo\\game-server"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_0589b74a-d93e-566f-b3c3-5f1dcfb1c18a"
+    ]
+   ],
+   "start_time": 1799931600,
+   "cpu": 0.0,
+   "private_bytes": 8388608,
+   "working_set": 13421772
+  },
+  {
+   "pid": 42436,
+   "ppid": 10060,
+   "name": "node.exe",
+   "exe": "C:\\Program Files\\nodejs\\node.exe",
+   "cmd": [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\bin\\codex.js"
+   ],
+   "cwd": "C:\\work\\demo\\game-server",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "a336a8d1-2bab-51be-902d-736db95c2d84"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "7d9a8ece-66b0-55a7-8fed-9713a7009a89::C:\\work\\demo\\game-server"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_0589b74a-d93e-566f-b3c3-5f1dcfb1c18a"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "a10e8e52-4fa0-5347-89c9-a8c3b1526c7c"
+    ]
+   ],
+   "start_time": 1799981400,
+   "cpu": 0.2,
+   "private_bytes": 89128960,
+   "working_set": 142606336
+  },
+  {
+   "pid": 10070,
+   "ppid": 1007,
+   "name": "pwsh.exe",
+   "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": [
+    "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "-NoLogo"
+   ],
+   "cwd": "C:\\work\\acme\\infra",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "31ef6ed2-1b3f-5582-b8e7-e2de957730ac"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "65b03d51-1dbf-57ad-8bf3-621d89231255::C:\\work\\acme\\infra"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_c145e71c-520c-5614-938f-4562aeffb5ef"
+    ]
+   ],
+   "start_time": 1799932200,
+   "cpu": 0.0,
+   "private_bytes": 73400320,
+   "working_set": 117440512
+  },
+  {
+   "pid": 10071,
+   "ppid": 10070,
+   "name": "conhost.exe",
+   "exe": "C:\\Windows\\system32\\conhost.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\conhost.exe",
+    "0x4"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "31ef6ed2-1b3f-5582-b8e7-e2de957730ac"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "65b03d51-1dbf-57ad-8bf3-621d89231255::C:\\work\\acme\\infra"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_c145e71c-520c-5614-938f-4562aeffb5ef"
+    ]
+   ],
+   "start_time": 1799932200,
+   "cpu": 0.0,
+   "private_bytes": 8388608,
+   "working_set": 13421772
+  },
+  {
+   "pid": 25048,
+   "ppid": 10070,
+   "name": "codex.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\codex\\codex.exe",
+   "cmd": [
+    "codex",
+    "resume",
+    "d1e4a8e4-76f4-582b-8878-6a56f482d2bf"
+   ],
+   "cwd": "C:\\work\\acme\\infra",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "31ef6ed2-1b3f-5582-b8e7-e2de957730ac"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "65b03d51-1dbf-57ad-8bf3-621d89231255::C:\\work\\acme\\infra"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_c145e71c-520c-5614-938f-4562aeffb5ef"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "2cc34209-5f77-51fd-95f8-2542ea4e48ad"
+    ]
+   ],
+   "start_time": 1799981900,
+   "cpu": 0.1,
+   "private_bytes": 146800640,
+   "working_set": 234881024
+  },
+  {
+   "pid": 10080,
+   "ppid": 1007,
+   "name": "pwsh.exe",
+   "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": [
+    "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "-NoLogo"
+   ],
+   "cwd": "C:\\work\\lab\\notes",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "9a2eb87a-5405-53a0-8024-575aecda6a32"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "d3681730-a818-5767-9d79-d70a71c14f50::C:\\work\\lab\\notes"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_46876a4a-ee00-5e0b-9fd5-2d66124bb53c"
+    ]
+   ],
+   "start_time": 1799932800,
+   "cpu": 0.0,
+   "private_bytes": 73400320,
+   "working_set": 117440512
+  },
+  {
+   "pid": 10081,
+   "ppid": 10080,
+   "name": "conhost.exe",
+   "exe": "C:\\Windows\\system32\\conhost.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\conhost.exe",
+    "0x4"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "9a2eb87a-5405-53a0-8024-575aecda6a32"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "d3681730-a818-5767-9d79-d70a71c14f50::C:\\work\\lab\\notes"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_46876a4a-ee00-5e0b-9fd5-2d66124bb53c"
+    ]
+   ],
+   "start_time": 1799932800,
+   "cpu": 0.0,
+   "private_bytes": 8388608,
+   "working_set": 13421772
+  },
+  {
+   "pid": 33772,
+   "ppid": 10080,
+   "name": "codex.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\codex\\codex.exe",
+   "cmd": [
+    "codex",
+    "resume",
+    "f52e6413-17f1-5900-b6b1-9cfc2dc49ead"
+   ],
+   "cwd": "C:\\work\\lab\\notes",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "9a2eb87a-5405-53a0-8024-575aecda6a32"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "d3681730-a818-5767-9d79-d70a71c14f50::C:\\work\\lab\\notes"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_46876a4a-ee00-5e0b-9fd5-2d66124bb53c"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "00a57297-4515-553e-9c93-22f94ce9d686"
+    ]
+   ],
+   "start_time": 1799982400,
+   "cpu": 0.0,
+   "private_bytes": 125829120,
+   "working_set": 201326592
+  },
+  {
+   "pid": 10090,
+   "ppid": 1007,
+   "name": "pwsh.exe",
+   "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": [
+    "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "-NoLogo"
+   ],
+   "cwd": "C:\\work\\demo\\site",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "19689fb8-238c-59df-8adb-de869c6f3a20"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "eddb99b1-f470-540e-80ec-59e1eba1fee1::C:\\work\\demo\\site"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_3463159d-a03c-5d2a-8b56-c8fe90230288"
+    ]
+   ],
+   "start_time": 1799933400,
+   "cpu": 0.0,
+   "private_bytes": 73400320,
+   "working_set": 117440512
+  },
+  {
+   "pid": 10091,
+   "ppid": 10090,
+   "name": "conhost.exe",
+   "exe": "C:\\Windows\\system32\\conhost.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\conhost.exe",
+    "0x4"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "19689fb8-238c-59df-8adb-de869c6f3a20"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "eddb99b1-f470-540e-80ec-59e1eba1fee1::C:\\work\\demo\\site"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_3463159d-a03c-5d2a-8b56-c8fe90230288"
+    ]
+   ],
+   "start_time": 1799933400,
+   "cpu": 0.0,
+   "private_bytes": 8388608,
+   "working_set": 13421772
+  },
+  {
+   "pid": 32076,
+   "ppid": 10090,
+   "name": "opencode.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe",
+   "cmd": [
+    "opencode"
+   ],
+   "cwd": "C:\\work\\demo\\site",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "19689fb8-238c-59df-8adb-de869c6f3a20"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "eddb99b1-f470-540e-80ec-59e1eba1fee1::C:\\work\\demo\\site"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_3463159d-a03c-5d2a-8b56-c8fe90230288"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "19745f0c-e082-5805-aa1d-f87f8d165c49"
+    ]
+   ],
+   "start_time": 1799982900,
+   "cpu": 1.5,
+   "private_bytes": 471859200,
+   "working_set": 754974720
+  },
+  {
+   "pid": 10100,
+   "ppid": 1007,
+   "name": "pwsh.exe",
+   "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": [
+    "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "-NoLogo"
+   ],
+   "cwd": "C:\\work\\acme\\search",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "30e16c8d-9e57-5696-a229-697ec065fd3b"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "454c45c4-8ea5-548e-9fbd-e39b39ce540b::C:\\work\\acme\\search"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_3ff5640b-90ce-53d6-a9d7-fafeabf01f22"
+    ]
+   ],
+   "start_time": 1799934000,
+   "cpu": 0.0,
+   "private_bytes": 73400320,
+   "working_set": 117440512
+  },
+  {
+   "pid": 10101,
+   "ppid": 10100,
+   "name": "conhost.exe",
+   "exe": "C:\\Windows\\system32\\conhost.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\conhost.exe",
+    "0x4"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "30e16c8d-9e57-5696-a229-697ec065fd3b"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "454c45c4-8ea5-548e-9fbd-e39b39ce540b::C:\\work\\acme\\search"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_3ff5640b-90ce-53d6-a9d7-fafeabf01f22"
+    ]
+   ],
+   "start_time": 1799934000,
+   "cpu": 0.0,
+   "private_bytes": 8388608,
+   "working_set": 13421772
+  },
+  {
+   "pid": 44348,
+   "ppid": 10100,
+   "name": "opencode.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe",
+   "cmd": [
+    "opencode"
+   ],
+   "cwd": "C:\\work\\acme\\search",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "30e16c8d-9e57-5696-a229-697ec065fd3b"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "454c45c4-8ea5-548e-9fbd-e39b39ce540b::C:\\work\\acme\\search"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_3ff5640b-90ce-53d6-a9d7-fafeabf01f22"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "a6461c98-e1f6-5dd6-9f56-2c090a15e2c6"
+    ]
+   ],
+   "start_time": 1799983400,
+   "cpu": 0.9,
+   "private_bytes": 440401920,
+   "working_set": 704643072
+  },
+  {
+   "pid": 33473,
+   "ppid": 33472,
+   "name": "bash.exe",
+   "exe": "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+   "cmd": [
+    "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+    "-c",
+    "npm run build"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "c1933913-ddd9-50fb-b872-e2433932ae80"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "89746be0-39e1-5bfb-90ff-e04002cad4aa::C:\\work\\acme\\web-app"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_208e2e6d-02a1-5cb0-b2bd-1f03557d562a"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "97e3c50e-cca9-59fa-8f7c-fe3671d53374"
+    ]
+   ],
+   "start_time": 1799999880,
+   "cpu": 0.2,
+   "private_bytes": 12582912,
+   "working_set": 20132659
+  },
+  {
+   "pid": 33474,
+   "ppid": 33473,
+   "name": "node.exe",
+   "exe": "C:\\Program Files\\nodejs\\node.exe",
+   "cmd": [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "C:\\work\\acme\\web-app\\node_modules\\vite\\bin\\vite.js",
+    "build"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "c1933913-ddd9-50fb-b872-e2433932ae80"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "89746be0-39e1-5bfb-90ff-e04002cad4aa::C:\\work\\acme\\web-app"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_208e2e6d-02a1-5cb0-b2bd-1f03557d562a"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "97e3c50e-cca9-59fa-8f7c-fe3671d53374"
+    ]
+   ],
+   "start_time": 1799999890,
+   "cpu": 9.5,
+   "private_bytes": 188743680,
+   "working_set": 301989888
+  },
+  {
+   "pid": 52000,
+   "ppid": 33472,
+   "name": "cmd.exe",
+   "exe": "C:\\Windows\\system32\\cmd.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\cmd.exe",
+    "/d",
+    "/s",
+    "/c",
+    "npx -y @modelcontextprotocol/server-filesystem C:\\work"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "c1933913-ddd9-50fb-b872-e2433932ae80"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "89746be0-39e1-5bfb-90ff-e04002cad4aa::C:\\work\\acme\\web-app"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_208e2e6d-02a1-5cb0-b2bd-1f03557d562a"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "97e3c50e-cca9-59fa-8f7c-fe3671d53374"
+    ]
+   ],
+   "start_time": 1799982000,
+   "cpu": 0.0,
+   "private_bytes": 3145728,
+   "working_set": 5033164
+  },
+  {
+   "pid": 52001,
+   "ppid": 52000,
+   "name": "node.exe",
+   "exe": "C:\\Program Files\\nodejs\\node.exe",
+   "cmd": [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
+    "-y",
+    "@modelcontextprotocol/server-filesystem",
+    "C:\\work"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "c1933913-ddd9-50fb-b872-e2433932ae80"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "89746be0-39e1-5bfb-90ff-e04002cad4aa::C:\\work\\acme\\web-app"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_208e2e6d-02a1-5cb0-b2bd-1f03557d562a"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "97e3c50e-cca9-59fa-8f7c-fe3671d53374"
+    ]
+   ],
+   "start_time": 1799982000,
+   "cpu": 0.0,
+   "private_bytes": 89128960,
+   "working_set": 142606336
+  },
+  {
+   "pid": 52002,
+   "ppid": 52001,
+   "name": "cmd.exe",
+   "exe": "C:\\Windows\\system32\\cmd.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\cmd.exe",
+    "/d",
+    "/s",
+    "/c",
+    "mcp-server-filesystem C:\\work"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "c1933913-ddd9-50fb-b872-e2433932ae80"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "89746be0-39e1-5bfb-90ff-e04002cad4aa::C:\\work\\acme\\web-app"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_208e2e6d-02a1-5cb0-b2bd-1f03557d562a"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "97e3c50e-cca9-59fa-8f7c-fe3671d53374"
+    ]
+   ],
+   "start_time": 1799982000,
+   "cpu": 0.0,
+   "private_bytes": 3145728,
+   "working_set": 5033164
+  },
+  {
+   "pid": 52003,
+   "ppid": 52002,
+   "name": "node.exe",
+   "exe": "C:\\Program Files\\nodejs\\node.exe",
+   "cmd": [
+    "node",
+    "C:\\Users\\dev\\AppData\\Local\\npm-cache\\_npx\\5eed0000\\node_modules\\@modelcontextprotocol\\server-filesystem\\dist\\index.js",
+    "C:\\work"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "c1933913-ddd9-50fb-b872-e2433932ae80"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "89746be0-39e1-5bfb-90ff-e04002cad4aa::C:\\work\\acme\\web-app"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_208e2e6d-02a1-5cb0-b2bd-1f03557d562a"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "97e3c50e-cca9-59fa-8f7c-fe3671d53374"
+    ]
+   ],
+   "start_time": 1799982000,
+   "cpu": 0.0,
+   "private_bytes": 67108864,
+   "working_set": 107374182
+  },
+  {
+   "pid": 53000,
+   "ppid": 43508,
+   "name": "cmd.exe",
+   "exe": "C:\\Windows\\system32\\cmd.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\cmd.exe",
+    "/d",
+    "/s",
+    "/c",
+    "npx -y @modelcontextprotocol/server-filesystem C:\\work"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "ddcad5b6-fbd9-53c2-9f23-8a9731927220"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "b1460c11-23ae-5d59-a0d7-615cb9a1aa36::C:\\work\\lab\\agentlens"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_63ecc79d-febe-5ae7-a685-67cc49e86e61"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "c40d2b98-fd01-5302-bcf4-2ca71ceb8bd0"
+    ]
+   ],
+   "start_time": 1799985600,
+   "cpu": 0.0,
+   "private_bytes": 3145728,
+   "working_set": 5033164
+  },
+  {
+   "pid": 53001,
+   "ppid": 53000,
+   "name": "node.exe",
+   "exe": "C:\\Program Files\\nodejs\\node.exe",
+   "cmd": [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
+    "-y",
+    "@modelcontextprotocol/server-filesystem",
+    "C:\\work"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "ddcad5b6-fbd9-53c2-9f23-8a9731927220"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "b1460c11-23ae-5d59-a0d7-615cb9a1aa36::C:\\work\\lab\\agentlens"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_63ecc79d-febe-5ae7-a685-67cc49e86e61"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "c40d2b98-fd01-5302-bcf4-2ca71ceb8bd0"
+    ]
+   ],
+   "start_time": 1799985600,
+   "cpu": 0.0,
+   "private_bytes": 89128960,
+   "working_set": 142606336
+  },
+  {
+   "pid": 53002,
+   "ppid": 53001,
+   "name": "cmd.exe",
+   "exe": "C:\\Windows\\system32\\cmd.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\cmd.exe",
+    "/d",
+    "/s",
+    "/c",
+    "mcp-server-filesystem C:\\work"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "ddcad5b6-fbd9-53c2-9f23-8a9731927220"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "b1460c11-23ae-5d59-a0d7-615cb9a1aa36::C:\\work\\lab\\agentlens"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_63ecc79d-febe-5ae7-a685-67cc49e86e61"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "c40d2b98-fd01-5302-bcf4-2ca71ceb8bd0"
+    ]
+   ],
+   "start_time": 1799985600,
+   "cpu": 0.0,
+   "private_bytes": 3145728,
+   "working_set": 5033164
+  },
+  {
+   "pid": 53003,
+   "ppid": 53002,
+   "name": "node.exe",
+   "exe": "C:\\Program Files\\nodejs\\node.exe",
+   "cmd": [
+    "node",
+    "C:\\Users\\dev\\AppData\\Local\\npm-cache\\_npx\\5eed0000\\node_modules\\@modelcontextprotocol\\server-filesystem\\dist\\index.js",
+    "C:\\work"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "ddcad5b6-fbd9-53c2-9f23-8a9731927220"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "b1460c11-23ae-5d59-a0d7-615cb9a1aa36::C:\\work\\lab\\agentlens"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_63ecc79d-febe-5ae7-a685-67cc49e86e61"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "c40d2b98-fd01-5302-bcf4-2ca71ceb8bd0"
+    ]
+   ],
+   "start_time": 1799985600,
+   "cpu": 0.0,
+   "private_bytes": 67108864,
+   "working_set": 107374182
+  },
+  {
+   "pid": 33869,
+   "ppid": 33868,
+   "name": "bash.exe",
+   "exe": "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+   "cmd": [
+    "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+    "-c",
+    "cargo test"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "f3f1ecef-7ca7-526b-9a8c-a45ef11e8d69"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "6645f7ee-b0ea-54b5-a7ad-390ad77db85c::C:\\work\\acme\\api"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_787b5e47-d42b-5a58-9a15-89d97d363eb6"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "a3323e11-33c3-5ea9-bfdf-087f801705de"
+    ]
+   ],
+   "start_time": 1799999940,
+   "cpu": 0.1,
+   "private_bytes": 10485760,
+   "working_set": 16777216
+  },
+  {
+   "pid": 12040,
+   "ppid": 28624,
+   "name": "codex.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\codex\\codex.exe",
+   "cmd": [
+    "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\codex\\codex.exe"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "85b06a8b-8d38-54c4-b89e-19c159f1aa2f"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "6659516f-0722-5695-a5b5-85fe25a39120::C:\\work\\demo\\game"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_ce6ad815-31f2-59c7-988f-48bf2b8a4ca8"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "d6467104-2413-56f9-bd2c-fe8fce5474aa"
+    ]
+   ],
+   "start_time": 1799980900,
+   "cpu": 0.4,
+   "private_bytes": 167772160,
+   "working_set": 268435456
+  },
+  {
+   "pid": 28900,
+   "ppid": 12040,
+   "name": "node.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\0001\\node.exe",
+   "cmd": [
+    "C:\\Users\\dev\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\0001\\node.exe",
+    "--experimental-vm-modules",
+    "runtime.mjs"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "85b06a8b-8d38-54c4-b89e-19c159f1aa2f"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "6659516f-0722-5695-a5b5-85fe25a39120::C:\\work\\demo\\game"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_ce6ad815-31f2-59c7-988f-48bf2b8a4ca8"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "d6467104-2413-56f9-bd2c-fe8fce5474aa"
+    ]
+   ],
+   "start_time": 1799989200,
+   "cpu": 0.1,
+   "private_bytes": 99614720,
+   "working_set": 159383552
+  },
+  {
+   "pid": 26032,
+   "ppid": 12040,
+   "name": "node_repl.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\0001\\node_repl.exe",
+   "cmd": [
+    "node_repl"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "85b06a8b-8d38-54c4-b89e-19c159f1aa2f"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "6659516f-0722-5695-a5b5-85fe25a39120::C:\\work\\demo\\game"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_ce6ad815-31f2-59c7-988f-48bf2b8a4ca8"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "d6467104-2413-56f9-bd2c-fe8fce5474aa"
+    ]
+   ],
+   "start_time": 1799989200,
+   "cpu": 0.0,
+   "private_bytes": 62914560,
+   "working_set": 100663296
+  },
+  {
+   "pid": 26544,
+   "ppid": 28900,
+   "name": "node_repl.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\0001\\node_repl.exe",
+   "cmd": [
+    "node_repl"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "85b06a8b-8d38-54c4-b89e-19c159f1aa2f"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "6659516f-0722-5695-a5b5-85fe25a39120::C:\\work\\demo\\game"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_ce6ad815-31f2-59c7-988f-48bf2b8a4ca8"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "d6467104-2413-56f9-bd2c-fe8fce5474aa"
+    ]
+   ],
+   "start_time": 1799992800,
+   "cpu": 0.0,
+   "private_bytes": 60817408,
+   "working_set": 97307852
+  },
+  {
+   "pid": 41248,
+   "ppid": 26544,
+   "name": "codex.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\codex\\codex.exe",
+   "cmd": [
+    "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\codex\\codex.exe",
+    "app-server"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "85b06a8b-8d38-54c4-b89e-19c159f1aa2f"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "6659516f-0722-5695-a5b5-85fe25a39120::C:\\work\\demo\\game"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_ce6ad815-31f2-59c7-988f-48bf2b8a4ca8"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "d6467104-2413-56f9-bd2c-fe8fce5474aa"
+    ]
+   ],
+   "start_time": 1799996400,
+   "cpu": 0.0,
+   "private_bytes": 78643200,
+   "working_set": 125829120
+  },
+  {
+   "pid": 22488,
+   "ppid": 12040,
+   "name": "codex-code-mode-host.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\vendor\\codex-code-mode-host.exe",
+   "cmd": [
+    "codex-code-mode-host"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "85b06a8b-8d38-54c4-b89e-19c159f1aa2f"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "6659516f-0722-5695-a5b5-85fe25a39120::C:\\work\\demo\\game"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_ce6ad815-31f2-59c7-988f-48bf2b8a4ca8"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "d6467104-2413-56f9-bd2c-fe8fce5474aa"
+    ]
+   ],
+   "start_time": 1799989200,
+   "cpu": 0.0,
+   "private_bytes": 31457280,
+   "working_set": 50331648
+  },
+  {
+   "pid": 42437,
+   "ppid": 42436,
+   "name": "codex.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\codex\\codex.exe",
+   "cmd": [
+    "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\codex\\codex.exe"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "a336a8d1-2bab-51be-902d-736db95c2d84"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "7d9a8ece-66b0-55a7-8fed-9713a7009a89::C:\\work\\demo\\game-server"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_0589b74a-d93e-566f-b3c3-5f1dcfb1c18a"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "a10e8e52-4fa0-5347-89c9-a8c3b1526c7c"
+    ]
+   ],
+   "start_time": 1799981400,
+   "cpu": 0.2,
+   "private_bytes": 157286400,
+   "working_set": 251658240
+  },
+  {
+   "pid": 25049,
+   "ppid": 25048,
+   "name": "node_repl.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\0001\\node_repl.exe",
+   "cmd": [
+    "node_repl"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "31ef6ed2-1b3f-5582-b8e7-e2de957730ac"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "65b03d51-1dbf-57ad-8bf3-621d89231255::C:\\work\\acme\\infra"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_c145e71c-520c-5614-938f-4562aeffb5ef"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "2cc34209-5f77-51fd-95f8-2542ea4e48ad"
+    ]
+   ],
+   "start_time": 1799996400,
+   "cpu": 0.0,
+   "private_bytes": 57671680,
+   "working_set": 92274688
+  },
+  {
+   "pid": 32077,
+   "ppid": 32076,
+   "name": "opencode.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe",
+   "cmd": [
+    "opencode",
+    "serve"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "19689fb8-238c-59df-8adb-de869c6f3a20"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "eddb99b1-f470-540e-80ec-59e1eba1fee1::C:\\work\\demo\\site"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_3463159d-a03c-5d2a-8b56-c8fe90230288"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "19745f0c-e082-5805-aa1d-f87f8d165c49"
+    ]
+   ],
+   "start_time": 1799985600,
+   "cpu": 0.8,
+   "private_bytes": 220200960,
+   "working_set": 352321536
+  },
+  {
+   "pid": 43044,
+   "ppid": 32077,
+   "name": "node.exe",
+   "exe": "C:\\Program Files\\nodejs\\node.exe",
+   "cmd": [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "C:\\Users\\dev\\.config\\opencode\\plugins\\rea\\rea.mjs",
+    "mcp"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "19689fb8-238c-59df-8adb-de869c6f3a20"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "eddb99b1-f470-540e-80ec-59e1eba1fee1::C:\\work\\demo\\site"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_3463159d-a03c-5d2a-8b56-c8fe90230288"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "19745f0c-e082-5805-aa1d-f87f8d165c49"
+    ]
+   ],
+   "start_time": 1799985660,
+   "cpu": 0.0,
+   "private_bytes": 73400320,
+   "working_set": 117440512
+  },
+  {
+   "pid": 44349,
+   "ppid": 44348,
+   "name": "opencode.exe",
+   "exe": "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe",
+   "cmd": [
+    "opencode",
+    "serve"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "30e16c8d-9e57-5696-a229-697ec065fd3b"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "454c45c4-8ea5-548e-9fbd-e39b39ce540b::C:\\work\\acme\\search"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_3ff5640b-90ce-53d6-a9d7-fafeabf01f22"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "a6461c98-e1f6-5dd6-9f56-2c090a15e2c6"
+    ]
+   ],
+   "start_time": 1799985600,
+   "cpu": 0.5,
+   "private_bytes": 209715200,
+   "working_set": 335544320
+  },
+  {
+   "pid": 43045,
+   "ppid": 44349,
+   "name": "node.exe",
+   "exe": "C:\\Program Files\\nodejs\\node.exe",
+   "cmd": [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "C:\\Users\\dev\\.config\\opencode\\plugins\\rea\\rea.mjs",
+    "mcp"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "30e16c8d-9e57-5696-a229-697ec065fd3b"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "454c45c4-8ea5-548e-9fbd-e39b39ce540b::C:\\work\\acme\\search"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_3ff5640b-90ce-53d6-a9d7-fafeabf01f22"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "a6461c98-e1f6-5dd6-9f56-2c090a15e2c6"
+    ]
+   ],
+   "start_time": 1799985600,
+   "cpu": 0.0,
+   "private_bytes": 71303168,
+   "working_set": 114085068
+  },
+  {
+   "pid": 6000,
+   "ppid": 900,
+   "name": "WindowsTerminal.exe",
+   "exe": "C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal\\WindowsTerminal.exe",
+   "cmd": [
+    "C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal\\WindowsTerminal.exe"
+   ],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799971200,
+   "cpu": 0.2,
+   "private_bytes": 94371840,
+   "working_set": 150994944
+  },
+  {
+   "pid": 6001,
+   "ppid": 6000,
+   "name": "OpenConsole.exe",
+   "exe": "C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal\\OpenConsole.exe",
+   "cmd": [],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799971200,
+   "cpu": 0.0,
+   "private_bytes": 6291456,
+   "working_set": 10066329
+  },
+  {
+   "pid": 6002,
+   "ppid": 6000,
+   "name": "pwsh.exe",
+   "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": [
+    "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+   ],
+   "cwd": "C:\\work\\scratch",
+   "env": [
+    [
+     "WT_SESSION",
+     "4132a6b1-7d09-506a-91b1-6a9b0719dc18"
+    ]
+   ],
+   "start_time": 1799971200,
+   "cpu": 0.0,
+   "private_bytes": 68157440,
+   "working_set": 109051904
+  },
+  {
+   "pid": 36608,
+   "ppid": 6002,
+   "name": "claude.exe",
+   "exe": "C:\\Users\\dev\\.local\\bin\\claude.exe",
+   "cmd": [
+    "claude"
+   ],
+   "cwd": "C:\\work\\scratch",
+   "env": [
+    [
+     "WT_SESSION",
+     "4132a6b1-7d09-506a-91b1-6a9b0719dc18"
+    ]
+   ],
+   "start_time": 1799974800,
+   "cpu": 0.0,
+   "private_bytes": 304087040,
+   "working_set": 486539264
+  },
+  {
+   "pid": 5000,
+   "ppid": 900,
+   "name": "ego.exe",
+   "exe": "C:\\Users\\dev\\.local\\share\\ego\\ego.exe",
+   "cmd": [
+    "C:\\Users\\dev\\.local\\share\\ego\\ego.exe"
+   ],
+   "cwd": null,
+   "env": [],
+   "start_time": 1799964000,
+   "cpu": 0.3,
+   "private_bytes": 272629760,
+   "working_set": 436207616
+  },
+  {
+   "pid": 52010,
+   "ppid": 5000,
+   "name": "claude.exe",
+   "exe": "C:\\Users\\dev\\.local\\bin\\claude.exe",
+   "cmd": [
+    "claude",
+    "--print"
+   ],
+   "cwd": "C:\\Users\\dev",
+   "env": [],
+   "start_time": 1799999400,
+   "cpu": 0.7,
+   "private_bytes": 251658240,
+   "working_set": 402653184
+  },
+  {
+   "pid": 25480,
+   "ppid": 25400,
+   "name": "cmd.exe",
+   "exe": "C:\\Windows\\system32\\cmd.exe",
+   "cmd": [
+    "C:\\Windows\\system32\\cmd.exe",
+    "/d",
+    "/s",
+    "/c",
+    "npx -y @modelcontextprotocol/server-github"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "AI_AGENT",
+     "claude-code_2-1-300_harness"
+    ],
+    [
+     "CLAUDECODE",
+     "1"
+    ],
+    [
+     "CLAUDE_CODE_SESSION_ID",
+     "cd778f86-9fa6-50e9-8fed-c97f90d5da76"
+    ]
+   ],
+   "start_time": 1799906400,
+   "cpu": 0.0,
+   "private_bytes": 3145728,
+   "working_set": 5033164
+  },
+  {
+   "pid": 25481,
+   "ppid": 25480,
+   "name": "node.exe",
+   "exe": "C:\\Program Files\\nodejs\\node.exe",
+   "cmd": [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
+    "-y",
+    "@modelcontextprotocol/server-github"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "AI_AGENT",
+     "claude-code_2-1-300_harness"
+    ],
+    [
+     "CLAUDECODE",
+     "1"
+    ],
+    [
+     "CLAUDE_CODE_SESSION_ID",
+     "cd778f86-9fa6-50e9-8fed-c97f90d5da76"
+    ]
+   ],
+   "start_time": 1799906400,
+   "cpu": 0.0,
+   "private_bytes": 92274688,
+   "working_set": 147639500
+  },
+  {
+   "pid": 25482,
+   "ppid": 25481,
+   "name": "node.exe",
+   "exe": "C:\\Program Files\\nodejs\\node.exe",
+   "cmd": [
+    "node",
+    "C:\\Users\\dev\\AppData\\Local\\npm-cache\\_npx\\5eed0001\\node_modules\\@modelcontextprotocol\\server-github\\dist\\index.js"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "AI_AGENT",
+     "claude-code_2-1-300_harness"
+    ],
+    [
+     "CLAUDECODE",
+     "1"
+    ],
+    [
+     "CLAUDE_CODE_SESSION_ID",
+     "cd778f86-9fa6-50e9-8fed-c97f90d5da76"
+    ]
+   ],
+   "start_time": 1799906400,
+   "cpu": 0.0,
+   "private_bytes": 74448896,
+   "working_set": 119118233
+  },
+  {
+   "pid": 35728,
+   "ppid": 35700,
+   "name": "node.exe",
+   "exe": "C:\\Program Files\\nodejs\\node.exe",
+   "cmd": [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "C:\\work\\demo\\game\\scripts\\dev-server.mjs",
+    "--port",
+    "5173"
+   ],
+   "cwd": "C:\\work\\demo\\game",
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "85b06a8b-8d38-54c4-b89e-19c159f1aa2f"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "6659516f-0722-5695-a5b5-85fe25a39120::C:\\work\\demo\\game"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_ce6ad815-31f2-59c7-988f-48bf2b8a4ca8"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "d6467104-2413-56f9-bd2c-fe8fce5474aa"
+    ]
+   ],
+   "start_time": 1799967600,
+   "cpu": 0.1,
+   "private_bytes": 157286400,
+   "working_set": 251658240
+  },
+  {
+   "pid": 7000,
+   "ppid": 6990,
+   "name": "Rancher Desktop.exe",
+   "exe": "C:\\Program Files\\Rancher Desktop\\Rancher Desktop.exe",
+   "cmd": [
+    "C:\\Program Files\\Rancher Desktop\\Rancher Desktop.exe"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "31ef6ed2-1b3f-5582-b8e7-e2de957730ac"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "65b03d51-1dbf-57ad-8bf3-621d89231255::C:\\work\\acme\\infra"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_c145e71c-520c-5614-938f-4562aeffb5ef"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "2cc34209-5f77-51fd-95f8-2542ea4e48ad"
+    ]
+   ],
+   "start_time": 1799956800,
+   "cpu": 0.2,
+   "private_bytes": 220200960,
+   "working_set": 352321536
+  }
+ ],
+ "tcp": [
+  {
+   "pid": 33472,
+   "local_addr": "192.168.1.20",
+   "local_port": 50100,
+   "remote_addr": "203.0.113.10",
+   "remote_port": 443
+  },
+  {
+   "pid": 33868,
+   "local_addr": "192.168.1.20",
+   "local_port": 50101,
+   "remote_addr": "203.0.113.11",
+   "remote_port": 443
+  },
+  {
+   "pid": 43508,
+   "local_addr": "192.168.1.20",
+   "local_port": 50102,
+   "remote_addr": "203.0.113.12",
+   "remote_port": 443
+  },
+  {
+   "pid": 12040,
+   "local_addr": "192.168.1.20",
+   "local_port": 50103,
+   "remote_addr": "203.0.113.13",
+   "remote_port": 443
+  },
+  {
+   "pid": 32077,
+   "local_addr": "192.168.1.20",
+   "local_port": 50104,
+   "remote_addr": "203.0.113.14",
+   "remote_port": 443
+  },
+  {
+   "pid": 36608,
+   "local_addr": "192.168.1.20",
+   "local_port": 50105,
+   "remote_addr": "203.0.113.15",
+   "remote_port": 443
+  },
+  {
+   "pid": 1000,
+   "local_addr": "127.0.0.1",
+   "local_port": 50200,
+   "remote_addr": "127.0.0.1",
+   "remote_port": 50201
+  },
+  {
+   "pid": 1007,
+   "local_addr": "127.0.0.1",
+   "local_port": 50201,
+   "remote_addr": "127.0.0.1",
+   "remote_port": 50200
+  }
+ ]
+}

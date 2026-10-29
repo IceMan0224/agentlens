@@ -150,7 +150,7 @@ cargo test --workspace
 cargo clippy --workspace --all-targets
 ```
 
-Tests include a recorded real-world snapshot, macOS/Linux-shaped process trees, leftover detection
+Tests include a realistic made-up snapshot, macOS/Linux-shaped process trees, leftover detection
 over time, and live tests that start, find and end real processes on each OS.
 
 Contributions are welcome. For a new agent or host, an entry in

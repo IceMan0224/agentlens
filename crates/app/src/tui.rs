@@ -2106,8 +2106,7 @@ mod tests {
     use ratatui::backend::TestBackend;
 
     fn app() -> App {
-        let snapshot: Snapshot =
-            serde_json::from_str(include_str!("../../core/tests/fixtures/orca_2026-10-29.json")).unwrap();
+        let snapshot: Snapshot = serde_json::from_str(include_str!("../../core/tests/fixtures/sample.json")).unwrap();
         let mut app = App::new(Rules::default(), Vec::new());
         app.apply(snapshot);
         app
@@ -2149,8 +2148,7 @@ mod tests {
     }
 
     fn korean_app() -> App {
-        let snapshot: Snapshot =
-            serde_json::from_str(include_str!("../../core/tests/fixtures/orca_2026-10-29.json")).unwrap();
+        let snapshot: Snapshot = serde_json::from_str(include_str!("../../core/tests/fixtures/sample.json")).unwrap();
         let rules = Rules {
             language: Language::Ko,
             ..Rules::default()
@@ -2193,7 +2191,7 @@ mod tests {
     fn ports_name_their_owner_and_ending_one_spares_the_session() {
         use agentlens_core::Listener;
         let mut snapshot: Snapshot =
-            serde_json::from_str(include_str!("../../core/tests/fixtures/orca_2026-10-29.json")).unwrap();
+            serde_json::from_str(include_str!("../../core/tests/fixtures/sample.json")).unwrap();
         let mut app = App::new(Rules::default(), Vec::new());
         app.apply(snapshot.clone());
         let m = app.model.as_ref().unwrap();
@@ -2260,13 +2258,18 @@ mod tests {
         let mut app = app();
         app.rules.auto_cleanup_minutes = 5;
         let now = app.model.as_ref().unwrap().taken_at;
-        // The fixture's orphans are programs agents started, shown but not proposed: propose
-        // one as if it held agent machinery.
+        // The MCP server tree of a closed session is proposed and pre-marked; the dev server and
+        // duplicate MCP servers are only shown.
         assert!(app.candidates.len() > 1);
-        assert!(app.candidates.iter().all(|c| !c.eligible));
-        let proposed = app.candidates[0].root_pid;
-        app.candidates[0].eligible = true;
-        app.marked.insert(proposed);
+        let eligible: Vec<u32> = app
+            .candidates
+            .iter()
+            .filter(|c| c.eligible)
+            .map(|c| c.root_pid)
+            .collect();
+        assert_eq!(eligible, [25480]);
+        let proposed = 25480;
+        assert!(app.marked.contains(&proposed));
         assert_eq!(app.auto_cleanup_roots(now).0, Vec::<u32>::new(), "just seen");
         assert_eq!(
             app.auto_cleanup_roots(now + AUTO_CLEANUP_GRACE_SECS).0,
@@ -2406,9 +2409,8 @@ mod tests {
 
     #[test]
     fn cleanup_cursor_follows_its_row_across_refreshes() {
-        let fixture = || -> Snapshot {
-            serde_json::from_str(include_str!("../../core/tests/fixtures/orca_2026-10-29.json")).unwrap()
-        };
+        let fixture =
+            || -> Snapshot { serde_json::from_str(include_str!("../../core/tests/fixtures/sample.json")).unwrap() };
         let mut app = App::new(Rules::default(), Vec::new());
         app.apply(fixture());
         app.selected[1] = app.candidates.len() - 1;
@@ -2435,7 +2437,7 @@ mod tests {
     #[test]
     fn non_ascii_session_ids_render() {
         let mut snapshot: Snapshot =
-            serde_json::from_str(include_str!("../../core/tests/fixtures/orca_2026-10-29.json")).unwrap();
+            serde_json::from_str(include_str!("../../core/tests/fixtures/sample.json")).unwrap();
         let claude = snapshot.processes.iter_mut().find(|p| p.pid == 33472).unwrap();
         claude.cmd = vec!["claude".into(), "--resume".into(), "출석체크기능테스트".into()];
         let mut app = App::new(Rules::default(), Vec::new());
@@ -2474,9 +2476,8 @@ mod tests {
     }
     #[test]
     fn leftovers_proposed_after_the_grace_are_marked_then() {
-        let fixture = || -> Snapshot {
-            serde_json::from_str(include_str!("../../core/tests/fixtures/orca_2026-10-29.json")).unwrap()
-        };
+        let fixture =
+            || -> Snapshot { serde_json::from_str(include_str!("../../core/tests/fixtures/sample.json")).unwrap() };
         // A native MCP server under a Claude Code session; the snapshot alone never lists it.
         let mut live = fixture();
         let claude = live.processes.iter().find(|p| p.pid == 33472).unwrap().clone();
