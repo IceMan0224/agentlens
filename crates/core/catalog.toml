@@ -38,6 +38,10 @@ sandbox = ["sandbox"]
 mcp = ["mcp", "modelcontextprotocol"]
 # Command-line flags (or subcommands) followed by a session id; `--flag=id` works too.
 session_flags = ["--resume", "-r", "--session", "--session-id", "resume"]
+# Set by agents on everything they start, valued `<agent>_<version>_<kind>`: `harness` for what
+# the agent itself starts (MCP servers), `agent` for commands the model runs. A cross-agent
+# convention, not a standard; agents map their name with `ai_agent`.
+agent_env = ["AI_AGENT"]
 
 [ssh]
 clients = ["ssh", "plink", "putty", "sftp", "scp"]
@@ -86,6 +90,11 @@ name = "Claude Code"
 exe = ["claude"]
 cmd = ["@anthropic-ai/claude-code"]
 traces = ["/.claude/"]
+# Set on everything it starts and inherited by their children, so a leftover still names the
+# session (and, for commands the model ran, the PID) that started it.
+ai_agent = ["claude-code"]
+session_env = "CLAUDE_CODE_SESSION_ID"
+pid_env = "CLAUDE_PID"
 
 [[agents]]
 # Orca launches agent teams through its own `orca` command, which would match the host.

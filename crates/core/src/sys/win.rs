@@ -10,13 +10,17 @@ use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 use windows::Wdk::System::SystemInformation::{NtQuerySystemInformation, SystemProcessInformation};
 use windows::Wdk::System::Threading::{NtQueryInformationProcess, ProcessCommandLineInformation};
 use windows::Win32::Foundation::{
-    CloseHandle, ERROR_INVALID_PARAMETER, FILETIME, HANDLE, HLOCAL, LocalFree, UNICODE_STRING,
+    CloseHandle, ERROR_INVALID_PARAMETER, FILETIME, HANDLE, HLOCAL, HWND, LPARAM, LocalFree, UNICODE_STRING,
 };
 use windows::Win32::System::Threading::{
     GetProcessTimes, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
     QueryFullProcessImageNameW, TerminateProcess,
 };
 use windows::Win32::UI::Shell::CommandLineToArgvW;
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetWindowTextLengthW, GetWindowThreadProcessId, IsWindowVisible,
+};
+use windows::core::BOOL;
 use windows::core::{PCWSTR, PWSTR};
 
 use super::{Details, RawProc};
@@ -218,6 +222,24 @@ fn terminate(pid: u32, start_time: u64) -> Outcome {
 }
 
 /// Same conversion as the process list's start time.
+/// Processes owning a visible, titled top-level window: programs the user sees and works with.
+pub fn windowed_pids() -> std::collections::HashSet<u32> {
+    unsafe extern "system" fn add(hwnd: HWND, found: LPARAM) -> BOOL {
+        unsafe {
+            if IsWindowVisible(hwnd).as_bool() && GetWindowTextLengthW(hwnd) > 0 {
+                let mut pid = 0;
+                GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                (*(found.0 as *mut std::collections::HashSet<u32>)).insert(pid);
+            }
+        }
+        BOOL(1)
+    }
+    let mut found = std::collections::HashSet::new();
+    // Fails only when the callback stops early, which it never does.
+    let _ = unsafe { EnumWindows(Some(add), LPARAM(&mut found as *mut _ as isize)) };
+    found
+}
+
 fn unix_secs(ft: FILETIME) -> u64 {
     let ticks = ((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64;
     (ticks / 10_000_000).saturating_sub(11_644_473_600)

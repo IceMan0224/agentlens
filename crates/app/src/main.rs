@@ -5,8 +5,9 @@ mod tui;
 use std::time::Duration;
 
 use agentlens_core::catalog::Catalog;
-use agentlens_core::health::{History, candidates};
+use agentlens_core::health::{History, Policy, candidates};
 use agentlens_core::model::Model;
+use agentlens_core::origin::Origins;
 use agentlens_core::rules::Rules;
 use agentlens_core::{Collector, Snapshot, install, net};
 
@@ -32,7 +33,20 @@ fn main() -> anyhow::Result<()> {
             let model = Model::build(snapshot, &catalog);
             let mut history = History::default();
             history.update(&model);
-            let found = candidates(&model, &history, rules.idle_minutes);
+            let mut origins = Origins::default();
+            origins.update(&model, &catalog);
+            // A report sees one moment, so there is no waiting for an owner to stay gone.
+            let policy = Policy {
+                owner_gone_grace: 0,
+                ..rules.policy()
+            };
+            let found = candidates(
+                &model,
+                &history,
+                &origins,
+                &policy,
+                agentlens_core::snapshot::windowed_pids,
+            );
             let ssh = net::ssh_connections(&model, &catalog, &net::load_ssh_config());
             print!("{}", report::render(&model, &found, &ssh));
             Ok(())

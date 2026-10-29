@@ -147,7 +147,7 @@ fn is_mcp(c: &Catalog, cmd: &str) -> bool {
         .any(|word| has(&c.processes.mcp, word))
 }
 
-fn env<'a>(p: &'a ProcInfo, key: &str) -> Option<&'a str> {
+pub(crate) fn env<'a>(p: &'a ProcInfo, key: &str) -> Option<&'a str> {
     p.env
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case(key))

@@ -39,6 +39,8 @@ pub struct Processes {
     pub sandbox: Vec<String>,
     pub mcp: Vec<String>,
     pub session_flags: Vec<String>,
+    /// Variables agents set on the processes they start, valued `<agent>_<version>_<kind>`.
+    pub agent_env: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -86,6 +88,15 @@ pub struct AgentDef {
     /// Model provider shown when the environment names no other.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    /// Names this agent goes by in `processes.agent_env` values (`claude-code`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ai_agent: Vec<String>,
+    /// Variable the agent sets on the processes it starts, naming its session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_env: Option<String>,
+    /// Variable the agent sets on the processes it starts, holding its own PID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pid_env: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -154,6 +165,13 @@ impl Catalog {
             );
         }
         push_new(&mut keys, self.providers.env.iter().cloned());
+        push_new(&mut keys, self.processes.agent_env.iter().cloned());
+        for agent in &self.agents {
+            push_new(
+                &mut keys,
+                [&agent.session_env, &agent.pid_env].into_iter().flatten().cloned(),
+            );
+        }
         keys
     }
 
@@ -174,6 +192,7 @@ impl Catalog {
             (&mut p.sandbox, o.sandbox),
             (&mut p.mcp, o.mcp),
             (&mut p.session_flags, o.session_flags),
+            (&mut p.agent_env, o.agent_env),
             (&mut self.ssh.clients, other.ssh.clients),
             (&mut self.ssh.putty, other.ssh.putty),
             (&mut self.ssh.servers, other.ssh.servers),
@@ -195,6 +214,9 @@ impl Catalog {
                     push_new(&mut def.cmd, agent.cmd);
                     push_new(&mut def.traces, agent.traces);
                     def.provider = agent.provider.or(def.provider.take());
+                    push_new(&mut def.ai_agent, agent.ai_agent);
+                    def.session_env = agent.session_env.or(def.session_env.take());
+                    def.pid_env = agent.pid_env.or(def.pid_env.take());
                 }
                 None => self.agents.push(agent),
             }
@@ -247,6 +269,7 @@ impl Catalog {
         }
         for agent in &mut self.agents {
             lower(&mut agent.exe);
+            lower(&mut agent.ai_agent);
             paths(&mut agent.cmd);
             paths(&mut agent.traces);
             if agent.name.is_empty() {

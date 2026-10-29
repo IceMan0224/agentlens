@@ -80,3 +80,9 @@ fn signal(pid: u32, sig: libc::c_int) -> Result<(), Outcome> {
         _ => Outcome::Failed(err.to_string()),
     })
 }
+
+/// Not read on Unix: GUI apps started with `open` (macOS) are children of launchd, not of the
+/// agent, and X11/Wayland window ownership has no portable answer.
+pub fn windowed_pids() -> std::collections::HashSet<u32> {
+    std::collections::HashSet::new()
+}

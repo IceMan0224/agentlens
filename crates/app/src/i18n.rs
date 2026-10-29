@@ -29,6 +29,10 @@ const WHOLE: &[(&str, &str)] = &[
     ("started-by-agent", "에이전트가 실행"),
     ("not-agent", "에이전트 아님"),
     ("exposed", "외부 노출"),
+    ("owner-gone", "주인 세션 종료"),
+    ("agent-infra", "에이전트 기반 프로세스"),
+    ("agent-command", "에이전트가 실행한 명령"),
+    ("has-window", "창 있음"),
 ];
 
 /// Evidence with a value after the word.
@@ -38,6 +42,8 @@ const PREFIX: &[(&str, &str)] = &[
     ("from tab ", "출처 탭 "),
     ("pids ", "PID "),
     ("listening ", "포트 열림 "),
+    ("from session ", "출처 세션 "),
+    ("in-use by ", "사용 중: "),
 ];
 
 /// Refusals: `<name> (<pid>)` followed by the reason.

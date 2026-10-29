@@ -6,11 +6,12 @@
 //! - `details(pid)` — exe, command line and, where cheap, cwd and environment (once per process)
 //! - `read_cwd_env` — cwd and environment for processes whose `details` left them out
 //! - `terminate_all` — end processes after re-checking each one's start time
+//! - `windowed_pids` — processes with a visible window (Windows only; empty elsewhere)
 
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
-pub use unix::{read_cwd_env, terminate_all};
+pub use unix::{read_cwd_env, terminate_all, windowed_pids};
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -25,7 +26,7 @@ pub use macos::{Lister, details, start_time};
 #[cfg(windows)]
 mod win;
 #[cfg(windows)]
-pub use win::{Lister, details, read_cwd_env, terminate_all};
+pub use win::{Lister, details, read_cwd_env, terminate_all, windowed_pids};
 
 pub struct RawProc {
     pub pid: u32,

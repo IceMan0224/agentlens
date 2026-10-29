@@ -19,6 +19,10 @@ pub struct Rules {
     pub auto_cleanup_minutes: u64,
     /// Automatic cleanup also ends idle sessions, not only proposed candidates.
     pub auto_cleanup_idle: bool,
+    /// Also propose leftovers of ended sessions that show a window (a browser an agent opened).
+    pub end_windowed: bool,
+    /// Also propose leftovers a live session is still connected to (a shared build daemon).
+    pub end_shared: bool,
     /// Extends the built-in catalog: same tables as `catalog.toml`.
     #[serde(flatten)]
     pub catalog: Catalog,
@@ -40,6 +44,8 @@ impl Default for Rules {
             language: Language::default(),
             auto_cleanup_minutes: 0,
             auto_cleanup_idle: false,
+            end_windowed: false,
+            end_shared: false,
             catalog: Catalog::default(),
         }
     }
@@ -87,6 +93,16 @@ impl Rules {
         let path = rules_path().ok_or("no config directory (APPDATA/HOME not set)")?;
         set_value(&path, key, value)?;
         Ok(path)
+    }
+
+    /// What decides which cleanup candidates are proposed.
+    pub fn policy(&self) -> crate::health::Policy {
+        crate::health::Policy {
+            idle_minutes: self.idle_minutes,
+            owner_gone_grace: crate::origin::OWNER_GONE_GRACE_SECS,
+            end_windowed: self.end_windowed,
+            end_shared: self.end_shared,
+        }
     }
 
     /// Registers an executable as a host in the rules file (see `append_host`).

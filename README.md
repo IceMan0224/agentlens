@@ -26,7 +26,7 @@ cargo build --release
 | 3 Network | SSH 연결: 목적지(별칭 해석), 원격 주소, 프로세스, 소유 세션. 아래에 `~/.ssh`의 키(종류·SHA256 지문·주석·개인키 유무·`config`에서 쓰는 호스트), `known_hosts`, `authorized_keys`를 조회 전용으로 표시(개인키 내용은 읽지 않음, 화면을 열 때마다 다시 읽음) | `d` 연결 끊기 (나가는 연결은 ssh 클라이언트, 들어오는 연결은 그 로그인의 `sshd-session` 종료) |
 | 4 Ports | 에이전트 세션과 고아가 연 LISTEN 포트: 바인딩(외부 노출/로컬), 프로세스, 다른 프로세스의 접속 수, 메모리, 주인(세션 또는 고아와 출처 탭). 에이전트 자체 서버는 흐리게, 고아는 노란색 | `k`/`x`/`Del` 주인 종료(고아는 고아 트리 전체, 세션 소속이면 그 프로세스와 하위만, 세션은 유지), `a` 모든 포트 보기 |
 | 5 Rules | 고아 판정 원리, 카탈로그·설치 스캔 결과·규칙 파일 | `↑↓` 스크롤, `e` 편집기로 열기(메모장 / `open -t` / `xdg-open`), `r` 다시 읽기 |
-| 6 Settings | 언어(English/한국어), 자동 정리 주기·유휴 세션 포함 여부, 유휴 기준 | `←/→`·`enter`·클릭 변경. 바꾸는 즉시 적용되고 규칙 파일의 해당 줄만 고쳐 저장(주석 유지) |
+| 6 Settings | 언어(English/한국어), 자동 정리 주기·유휴 세션 포함 여부, 유휴 기준, 창이 있거나 사용 중인 잔여 프로세스 처리 | `←/→`·`enter`·클릭 변경. 바꾸는 즉시 적용되고 규칙 파일의 해당 줄만 고쳐 저장(주석 유지) |
 
 공통: `1-6`/`tab` 뷰 전환, `s` 정렬(메모리→CPU→유휴), 마우스 휠·클릭(같은 행 두 번 클릭 = 접기), `q` 종료.
 
@@ -57,8 +57,19 @@ phys_footprint, Linux는 상주 페이지에서 공유 페이지를 뺀 값(`sta
   모든 GUI 앱도 launchd/systemd의 자식이므로, 입양된 프로세스는 그 자체가 에이전트 구성요소(또는 그것을 돌리는
   셸)일 때만 에이전트 관련으로 봅니다. 아래에 MCP 서버를 띄운 앱이라는 이유만으로는 고아가 아닙니다.
   WSL의 세션별 `/init` 중계 프로세스처럼 PID 1이 아닌 `init`은 입양자가 아닙니다.
-  - 에이전트 구성요소(에이전트, REPL, MCP 서버, 에이전트 런타임)가 남은 것만 **기본 제안**합니다.
-  - 에이전트가 띄운 dev 서버 같은 프로그램은 "started-by-agent, from tab …"으로 보여만 줍니다.
+  - **끝난 세션이 남긴 것**도 고아입니다. 두 가지로 알아냅니다. 호스트와 상관없이 OS의 사실만 씁니다.
+    - 계보: 대시보드가 그 프로세스를 세션 아래에서 본 적이 있으면, 세션이 끝난 뒤 남은 것을 압니다(모든 에이전트).
+    - 출생 기록: 에이전트는 자기가 띄우는 프로세스에 환경변수를 넣고, 이 값은 자손에게 상속되며 부모가 죽어도
+      남습니다. Claude Code는 `AI_AGENT`(`…_harness`: MCP 서버 등 직접 띄운 것, `…_agent`: 모델이 실행한 명령),
+      `CLAUDE_CODE_SESSION_ID`, `CLAUDE_PID`를 넣습니다. 그래서 대시보드를 켜기 전에 남은 것도 찾습니다.
+      변수 이름은 카탈로그(`agent_env`, 에이전트별 `ai_agent`·`session_env`·`pid_env`)에 있습니다.
+    - 주인이 사라진 것을 본 뒤 15초가 지나야 고아로 봅니다(정상 종료 중인 자식, `docker run` 서버의 정지 시간).
+      살아 있는 세션에서 일부러 떼어 낸 프로세스(`nohup … &`)나, 끝난 세션 안에서 시작돼 아직 살아 있는 다른
+      에이전트 세션은 고아가 아닙니다.
+  - **기본 제안**: 에이전트 구성요소(에이전트, REPL, MCP 서버, 에이전트 런타임)가 남은 고아와, dev 서버를 포함해
+    끝난 세션이 남긴 모든 것. 다만 창이 있는 것(에이전트가 연 브라우저 등)과 살아 있는 세션이 연결해 쓰는 것(공용
+    빌드 데몬 등)은 설정의 `end_windowed`·`end_shared`를 켜지 않는 한 남겨 둡니다(`has-window`, `in-use by …`).
+  - 출처를 모르는 dev 서버 같은 프로그램은 "started-by-agent, from tab …"으로 보여만 줍니다.
   - 고아 트리가 연 포트도 근거로 붙습니다(`listening :3050`, 0.0.0.0처럼 외부에 열려 있으면 `exposed`).
     49152 이상 동적 포트는 프로그램 내부 통신용인 경우가 많아 다른 포트가 없을 때만 적습니다.
 - **수집**: OS마다 커널 인터페이스를 직접 씁니다(`crates/core/src/sys/`).
@@ -106,6 +117,8 @@ protect = ["dev-server"]          # 이름/명령줄에 포함되면 종료 거�
 language = "ko"                   # en | ko
 auto_cleanup_minutes = 15         # 0 = 끔
 auto_cleanup_idle = false         # 자동 정리에 유휴 세션 포함
+end_windowed = false              # 끝난 세션이 남긴, 창이 있는 앱도 제안
+end_shared = false                # 살아 있는 세션이 쓰는 잔여 프로세스도 제안
 
 [processes]
 shells = ["elvish"]               # 새 셸
@@ -152,6 +165,7 @@ cargo test
 
 - `crates/core/tests/fixture.rs`: 실제 스냅샷(Orca 탭 11개)으로 묶음·판정 회귀 테스트
 - `crates/core/tests/unix_model.rs`: macOS 형태의 트리(Terminal.app, SSH 로그인, launchd 입양 고아)
+- `crates/core/tests/origin.rs`: 끝난 세션이 남긴 것(계보·출생 기록, 유예 시간, PID 재사용, 중첩 세션, 예외 규칙)
 - `crates/core/src/sys/*`: OS별 수집 단위 테스트(자기 프로세스 대조, `/proc/stat`·`KERN_PROCARGS2` 파싱)
 - `crates/core/tests/live.rs`: 실제 프로세스로 트리 종료, PID 재사용 보호, 자기 보호, SSH 감지·끊기
   (Windows, macOS, Linux 모두에서 실행)

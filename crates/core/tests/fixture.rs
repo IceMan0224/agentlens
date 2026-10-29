@@ -3,8 +3,10 @@
 
 use agentlens_core::Snapshot;
 use agentlens_core::catalog::Catalog;
-use agentlens_core::health::{CandidateKind, History, candidates};
+use agentlens_core::health::{Candidate, CandidateKind, History, candidates};
 use agentlens_core::model::{GroupKind, HelperKind, Model, OrphanReason, Role};
+use agentlens_core::origin::Origins;
+use agentlens_core::rules::Rules;
 
 fn model() -> Model {
     let text = include_str!("fixtures/orca_2026-10-29.json");
@@ -85,7 +87,7 @@ fn programs_started_by_agents_are_shown_but_not_proposed() {
 
     let mut history = History::default();
     history.update(&m);
-    let found = candidates(&m, &history, 30);
+    let found = found(&m, &history);
     let orphans: Vec<_> = found.iter().filter(|c| c.kind == CandidateKind::Orphan).collect();
     assert!(orphans.iter().any(|c| c.root_pid == 35728));
     assert!(orphans.iter().all(|c| !c.eligible), "nothing here is agent machinery");
@@ -98,7 +100,7 @@ fn duplicate_mcp_servers_are_reported() {
     let m = model();
     let mut history = History::default();
     history.update(&m);
-    let dup = candidates(&m, &history, 30)
+    let dup = found(&m, &history)
         .into_iter()
         .find(|c| c.kind == CandidateKind::DuplicateMcp)
         .unwrap();
@@ -133,4 +135,11 @@ fn script_agents_and_providers_are_detected() {
     assert_eq!(find(42436).provider.as_deref(), Some("GLM"));
     assert_eq!(find(33868).agent_id, "claude");
     assert_eq!(find(33868).provider.as_deref(), Some("GLM"));
+}
+
+/// Candidates with default rules and no lineage: what a fresh dashboard shows.
+fn found(m: &Model, history: &History) -> Vec<Candidate> {
+    let mut origins = Origins::default();
+    origins.update(m, &Catalog::builtin());
+    candidates(m, history, &origins, &Rules::default().policy(), Default::default)
 }

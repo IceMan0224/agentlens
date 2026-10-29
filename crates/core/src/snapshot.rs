@@ -370,6 +370,11 @@ fn tcp_sockets() -> (Vec<TcpConn>, Vec<Listener>) {
     (conns, listening)
 }
 
+/// Processes owning a visible window (Windows; empty elsewhere).
+pub fn windowed_pids() -> std::collections::HashSet<u32> {
+    sys::windowed_pids()
+}
+
 fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

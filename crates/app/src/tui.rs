@@ -11,7 +11,9 @@ use agentlens_core::health::{Candidate, CandidateKind, History, candidates, fmt_
 use agentlens_core::keys::{self, KeyInfo, SshInventory};
 use agentlens_core::model::{Group, GroupKind, Model, Role, short_path};
 use agentlens_core::net::{self, Port, PortOwner, SshConn, SshHost};
+use agentlens_core::origin::Origins;
 use agentlens_core::rules::{Language, Rules, rules_path};
+use agentlens_core::snapshot::windowed_pids;
 use agentlens_core::{Collector, Snapshot};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
@@ -69,13 +71,17 @@ enum Setting {
     AutoCleanup,
     AutoCleanupIdle,
     IdleMinutes,
+    EndWindowed,
+    EndShared,
 }
 
-const SETTINGS: [Setting; 4] = [
+const SETTINGS: [Setting; 6] = [
     Setting::Language,
     Setting::AutoCleanup,
     Setting::AutoCleanupIdle,
     Setting::IdleMinutes,
+    Setting::EndWindowed,
+    Setting::EndShared,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -125,6 +131,7 @@ pub struct App {
     self_pid: u32,
     model: Option<Model>,
     history: History,
+    origins: Origins,
     candidates: Vec<Candidate>,
     ssh: Vec<SshConn>,
     ports: Vec<Port>,
@@ -139,8 +146,10 @@ pub struct App {
     offsets: [usize; 6],
     flipped: HashSet<String>,
     marked: HashSet<u32>,
-    /// Candidate root -> when it was first seen.
+    /// Candidate root -> when it was first seen, or first proposed.
     seen_candidates: HashMap<u32, u64>,
+    /// Candidate roots proposed (and pre-marked) once; a later unmark is kept.
+    proposed: HashSet<u32>,
     /// When automatic cleanup last ran, or was switched on.
     last_auto_cleanup: Option<u64>,
     /// When it last ended something or found nothing, and what happened.
@@ -174,6 +183,7 @@ impl App {
             self_pid: std::process::id(),
             model: None,
             history: History::default(),
+            origins: Origins::default(),
             candidates: Vec::new(),
             ssh: Vec::new(),
             ports: Vec::new(),
@@ -187,6 +197,7 @@ impl App {
             flipped: HashSet::new(),
             marked: HashSet::new(),
             seen_candidates: HashMap::new(),
+            proposed: HashSet::new(),
             last_auto_cleanup: None,
             auto_cleanup_result: None,
             confirm: None,
@@ -204,6 +215,7 @@ impl App {
     pub fn apply(&mut self, snapshot: Snapshot) {
         let model = Model::build(snapshot, &self.catalog);
         self.history.update(&model);
+        self.origins.update(&model, &self.catalog);
         // The lists are rebuilt and re-sorted every refresh: keep the cursor on the same row.
         let cleanup_key = |c: &Candidate| (c.kind, c.root_pid);
         let ssh_key = |c: &SshConn| (c.pid, c.remote.clone(), c.local.clone());
@@ -211,7 +223,13 @@ impl App {
         let was_ssh = self.ssh.get(self.selected[2]).map(ssh_key);
         let port_key = |p: &Port| (p.pid, p.port);
         let was_port = self.visible_ports().get(self.selected[3]).map(|p| port_key(p));
-        self.candidates = candidates(&model, &self.history, self.rules.idle_minutes);
+        self.candidates = candidates(
+            &model,
+            &self.history,
+            &self.origins,
+            &self.rules.policy(),
+            windowed_pids,
+        );
         self.ssh = net::ssh_connections(&model, &self.catalog, &self.ssh_config);
         self.ports = net::ports(&model);
         if let Some(i) = was_port.and_then(|k| self.visible_ports().iter().position(|p| port_key(p) == k)) {
@@ -224,19 +242,22 @@ impl App {
             self.selected[2] = i;
         }
 
-        // Pre-mark new eligible candidates and announce them; keep the user's choices otherwise.
+        // Pre-mark candidates when they are first proposed, which can be after they first show
+        // up (an owner gone long enough), and announce them; keep the user's choices otherwise.
         let mut fresh = Vec::new();
         for c in &self.candidates {
-            if let std::collections::hash_map::Entry::Vacant(e) = self.seen_candidates.entry(c.root_pid) {
-                e.insert(model.taken_at);
-                if c.eligible {
-                    self.marked.insert(c.root_pid);
-                    fresh.push(format!("{} ({})", c.label, mb(c.private_bytes)));
-                }
+            if c.eligible && self.proposed.insert(c.root_pid) {
+                // Automatic cleanup's grace counts from here.
+                self.seen_candidates.insert(c.root_pid, model.taken_at);
+                self.marked.insert(c.root_pid);
+                fresh.push(format!("{} ({})", c.label, mb(c.private_bytes)));
+            } else {
+                self.seen_candidates.entry(c.root_pid).or_insert(model.taken_at);
             }
         }
         let alive: HashSet<u32> = self.candidates.iter().map(|c| c.root_pid).collect();
         self.marked.retain(|p| alive.contains(p));
+        self.proposed.retain(|p| alive.contains(p));
         self.seen_candidates.retain(|p, _| alive.contains(p));
         if !fresh.is_empty() && self.model.is_some() {
             let fresh = fresh.join(", ");
@@ -601,6 +622,24 @@ impl App {
                             lang,
                             "A session whose processes stay under 1% CPU this long is idle",
                             "세션 프로세스가 이 시간 동안 CPU 1% 미만이면 유휴",
+                        ),
+                    ),
+                    Setting::EndWindowed => (
+                        t(lang, "Leftovers with a window", "창이 있는 잔여 프로세스"),
+                        end_or_keep(lang, r.end_windowed),
+                        t(
+                            lang,
+                            "Apps an ended session opened that you can see, such as a browser",
+                            "끝난 세션이 연, 화면에 보이는 앱(브라우저 등)",
+                        ),
+                    ),
+                    Setting::EndShared => (
+                        t(lang, "Leftovers in use", "사용 중인 잔여 프로세스"),
+                        end_or_keep(lang, r.end_shared),
+                        t(
+                            lang,
+                            "Leftovers a live session is connected to, such as a shared build daemon",
+                            "살아 있는 세션이 연결해 쓰는 잔여 프로세스(공용 빌드 데몬 등)",
                         ),
                     ),
                 };
@@ -996,7 +1035,7 @@ impl App {
             },
         );
         // Mirrors `Model::build` and `health::candidates`.
-        let orphans: [&str; 5] = match lang {
+        let orphans: [&str; 6] = match lang {
             Language::En => [
                 "A parent link counts only when the parent PID is alive, started no later than the child, \
                  and is not init/launchd/systemd (which adopt orphans).",
@@ -1007,8 +1046,13 @@ impl App {
                 "Other parentless processes outside sessions count only when their tree holds agent machinery \
                  (agent, REPL, MCP server, agent or host traces), or they are a runtime (node, python …) or a \
                  shell running one. Hosts and system processes never do.",
-                "Only orphans holding agent machinery are proposed for cleanup (yellow). Programs an agent \
-                 started, such as dev servers, are shown with their origin tab only.",
+                "Whatever an ended session left behind is an orphan too, found two ways: the dashboard saw it \
+                 under that session, or its environment names the session (AI_AGENT, CLAUDE_PID, \
+                 CLAUDE_CODE_SESSION_ID), which also covers leftovers from before the dashboard started. \
+                 It counts 15 s after its owner is seen gone (owner-gone, from session …).",
+                "Proposed for cleanup (yellow): orphans holding agent machinery, and everything an ended \
+                 session left, dev servers included. Leftovers with a window or that a live session is \
+                 connected to are kept unless Settings says otherwise.",
             ],
             Language::Ko => [
                 "부모 PID가 살아 있고, 자식보다 먼저 시작됐고, init/launchd/systemd(고아를 입양하는 프로세스)가 \
@@ -1020,8 +1064,11 @@ impl App {
                 "세션 밖의 부모 없는 프로세스는 트리에 에이전트 구성요소(에이전트, REPL, MCP 서버, 에이전트·호스트 \
                  흔적)가 있거나, 런타임(node, python …)이거나 런타임을 돌리는 셸일 때만 고아로 봅니다. 호스트와 \
                  시스템 프로세스는 제외합니다.",
-                "에이전트 구성요소가 남은 고아만 정리 후보로 기본 제안(노란색)합니다. 에이전트가 띄운 dev 서버 \
-                 같은 프로그램은 출처 탭과 함께 보여 주기만 합니다.",
+                "끝난 세션이 남긴 것도 고아입니다. 대시보드가 그 세션 아래에서 본 적이 있거나, 환경변수(AI_AGENT, \
+                 CLAUDE_PID, CLAUDE_CODE_SESSION_ID)에 세션이 적혀 있으면 알 수 있어 대시보드를 켜기 전에 남은 것도 \
+                 찾습니다. 주인이 사라진 것을 본 뒤 15초가 지나면 고아로 봅니다(주인 세션 종료, 출처 세션 …).",
+                "정리 후보로 기본 제안(노란색)하는 것: 에이전트 구성요소가 남은 고아, 그리고 dev 서버를 포함해 끝난 \
+                 세션이 남긴 모든 것. 창이 있거나 살아 있는 세션이 연결해 쓰는 것은 설정에서 바꾸지 않는 한 남겨 둡니다.",
             ],
         };
         let mut lines = vec![
@@ -1077,6 +1124,8 @@ impl App {
             Line::from("  language = \"ko\"            # en | ko"),
             Line::from("  auto_cleanup_minutes = 15  # 0 = off"),
             Line::from("  auto_cleanup_idle = false"),
+            Line::from("  end_windowed = false       # leftovers with a window"),
+            Line::from("  end_shared = false         # leftovers a live session uses"),
             Line::from("  [[agents]]  id = \"myagent\"  exe = [\"myagent\"]  cmd = [\"@me/agent\"]"),
             Line::from("  [[hosts]]   id = \"myterm\"   exe = [\"myterm\"]"),
         ]);
@@ -1657,6 +1706,14 @@ impl App {
                 r.idle_minutes = cycle(&IDLE_MINUTES, r.idle_minutes, step);
                 ("idle_minutes", r.idle_minutes.to_string())
             }
+            Setting::EndWindowed => {
+                r.end_windowed = !r.end_windowed;
+                ("end_windowed", r.end_windowed.to_string())
+            }
+            Setting::EndShared => {
+                r.end_shared = !r.end_shared;
+                ("end_shared", r.end_shared.to_string())
+            }
         };
         // Starts the interval now, from the current snapshot.
         self.auto_cleanup();
@@ -1810,6 +1867,15 @@ fn cycle(choices: &[u64], current: u64, step: isize) -> u64 {
         Some(i) => choices[(i as isize + step).rem_euclid(choices.len() as isize) as usize],
         None => choices[0],
     }
+}
+
+fn end_or_keep(lang: Language, end: bool) -> String {
+    if end {
+        t(lang, "end too", "같이 종료")
+    } else {
+        t(lang, "keep", "남겨 둠")
+    }
+    .to_string()
 }
 
 fn fold(open: bool, label: &str) -> String {
@@ -2278,5 +2344,62 @@ mod tests {
         assert!(!app.on_event(mouse(MouseEventKind::Moved)));
         assert!(app.on_event(mouse(MouseEventKind::ScrollDown)));
         assert!(app.on_event(Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))));
+    }
+    #[test]
+    fn leftovers_proposed_after_the_grace_are_marked_then() {
+        let fixture = || -> Snapshot {
+            serde_json::from_str(include_str!("../../core/tests/fixtures/orca_2026-10-29.json")).unwrap()
+        };
+        // A native MCP server under a Claude Code session; the snapshot alone never lists it.
+        let mut live = fixture();
+        let claude = live.processes.iter().find(|p| p.pid == 33472).unwrap().clone();
+        let mut server = claude.clone();
+        (server.pid, server.ppid, server.name) = (4_100_000, Some(33472), "github-server.exe".into());
+        (server.exe, server.cmd) = (Some(r"C:\tools\github-server.exe".into()), vec!["github-server".into()]);
+        server.start_time += 1;
+        // And a dev server: listed as an orphan at once, proposed once its owner is known gone.
+        let mut shell = server.clone();
+        (shell.pid, shell.name) = (4_100_001, "bash.exe".into());
+        (shell.exe, shell.cmd) = (Some(r"C:\Git\bin\bash.exe".into()), vec!["bash".into()]);
+        let mut dev = server.clone();
+        (dev.pid, dev.ppid, dev.name) = (4_100_002, Some(4_100_001), "node.exe".into());
+        (dev.exe, dev.cmd) = (
+            Some(r"C:\nodejs\node.exe".into()),
+            vec!["node".into(), "dev.mjs".into()],
+        );
+        live.processes.extend([server, shell, dev]);
+        let mut app = App::new(Rules::default(), Vec::new());
+        app.apply(live.clone());
+
+        // The session is killed; its server stays.
+        let ended = |after: u64| {
+            let mut s = live.clone();
+            s.processes.retain(|p| p.pid != 33472);
+            s.taken_at += after;
+            s
+        };
+        app.apply(ended(5));
+        assert!(
+            !app.candidates.iter().any(|c| c.root_pid == 4_100_000),
+            "within the grace"
+        );
+        // Orphans the snapshot lists at once but proposes only once their owner is known gone.
+        let listed_early: Vec<u32> = app
+            .candidates
+            .iter()
+            .filter(|c| !c.eligible)
+            .map(|c| c.root_pid)
+            .collect();
+        app.apply(ended(5 + agentlens_core::origin::OWNER_GONE_GRACE_SECS));
+        let c = app
+            .candidates
+            .iter()
+            .find(|c| c.root_pid == 4_100_000)
+            .expect("proposed");
+        assert!(c.eligible && app.marked.contains(&4_100_000), "{:?}", c.reasons);
+        assert!(app.status.contains("github-server"), "{}", app.status);
+        assert!(listed_early.contains(&4_100_001), "{listed_early:?}");
+        let shell = app.candidates.iter().find(|c| c.root_pid == 4_100_001).unwrap();
+        assert!(shell.eligible && app.marked.contains(&4_100_001), "{:?}", shell.reasons);
     }
 }
