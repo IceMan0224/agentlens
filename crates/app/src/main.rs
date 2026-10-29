@@ -10,12 +10,18 @@ use agentlens_core::model::Model;
 use agentlens_core::origin::Origins;
 use agentlens_core::rules::Rules;
 use agentlens_core::stdio::StdioProbe;
-use agentlens_core::{Collector, Snapshot, install, net};
+use agentlens_core::{Collector, Snapshot, hooks, install, net};
 
 const USAGE: &str = "usage: agentlens [--report [snapshot.json] | --dump-json]";
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // `hook <agent>` is not for people: agents run it once it is switched on in Settings.
+    if args.first().map(String::as_str) == Some("hook") {
+        // Run for every event: never disturb the agent, whatever happens.
+        let _ = hook(args.get(1).map(String::as_str));
+        return Ok(());
+    }
     let rules = Rules::load().map_err(anyhow::Error::msg)?;
     let installed = install::scan(&Catalog::builtin().with_rules(&rules));
     let catalog = Catalog::builtin().with_rules(&rules).with_installed(&installed);
@@ -65,6 +71,24 @@ fn main() -> anyhow::Result<()> {
         }
         Some(other) => anyhow::bail!("unknown argument {other}\n{USAGE}"),
     }
+}
+
+/// `agentlens hook <agent>`: records the event the agent passes on standard input.
+fn hook(agent: Option<&str>) -> Result<(), String> {
+    use std::io::Read;
+    let agent = agent.ok_or("no agent")?;
+    // The user's rules can add or change hook definitions; a broken rules file must not.
+    let catalog = match Rules::load() {
+        Ok(rules) => Catalog::builtin().with_rules(&rules),
+        Err(_) => Catalog::builtin(),
+    };
+    let mut input = String::new();
+    std::io::stdin()
+        .take(1 << 20)
+        .read_to_string(&mut input)
+        .map_err(|e| e.to_string())?;
+    let dir = hooks::state_dir().ok_or("no state directory")?;
+    hooks::record(&dir, &catalog, agent, hooks::owner(&catalog), &input)
 }
 
 fn live_snapshot(catalog: &Catalog) -> anyhow::Result<Snapshot> {

@@ -10,6 +10,7 @@ use agentlens_core::catalog::Catalog;
 use agentlens_core::health::{
     Candidate, CandidateKind, History, SessionState, candidates, fmt_duration, session_state, short_cmd,
 };
+use agentlens_core::hooks::{self, HookState};
 use agentlens_core::keys::{self, KeyInfo, SshInventory};
 use agentlens_core::model::{Group, GroupKind, Model, Role, short_path};
 use agentlens_core::net::{self, Port, PortOwner, SshConn, SshHost};
@@ -76,8 +77,11 @@ enum Setting {
     IdleMinutes,
     EndWindowed,
     EndShared,
+    /// Registering agentlens in an agent's hooks, by index into `Catalog::agents`.
+    Hooks(usize),
 }
 
+/// Fixed settings; one `Hooks` row per agent with hooks follows them.
 const SETTINGS: [Setting; 6] = [
     Setting::Language,
     Setting::AutoCleanup,
@@ -136,6 +140,10 @@ pub struct App {
     history: History,
     origins: Origins,
     stdio: StdioProbe,
+    /// Latest hook state of each session, by agent process (pid, start time).
+    hook_states: HashMap<(u32, u64), HookState>,
+    /// Agent id -> whether agentlens is in its hook settings, read when Settings opens.
+    hooks_registered: HashMap<String, Result<bool, String>>,
     candidates: Vec<Candidate>,
     ssh: Vec<SshConn>,
     ports: Vec<Port>,
@@ -189,6 +197,8 @@ impl App {
             history: History::default(),
             origins: Origins::default(),
             stdio: StdioProbe::default(),
+            hook_states: HashMap::new(),
+            hooks_registered: HashMap::new(),
             candidates: Vec::new(),
             ssh: Vec::new(),
             ports: Vec::new(),
@@ -223,6 +233,9 @@ impl App {
         self.origins.update(&model, &self.catalog);
         let closed = self.stdio.update(&model);
         self.origins.note_stdio_closed(&model, &closed);
+        self.hook_states = hooks::state_dir()
+            .map(|dir| hooks::read_states(&dir, &model))
+            .unwrap_or_default();
         // The lists are rebuilt and re-sorted every refresh: keep the cursor on the same row.
         let cleanup_key = |c: &Candidate| (c.kind, c.root_pid);
         let ssh_key = |c: &SshConn| (c.pid, c.remote.clone(), c.local.clone());
@@ -426,8 +439,12 @@ impl App {
                     );
                     let mut cells = vec![Cell::from(name), Cell::from(s.root_pid.to_string())];
                     cells.extend(stats(&tree, Some(self.idle(m, &tree))));
-                    let state = session_state(m, &self.history, &tree, self.rules.idle_minutes);
-                    *cells.last_mut().unwrap() = state_cell(lang, state);
+                    // What the agent itself reported wins over what its CPU use suggests.
+                    let start = m.procs[&s.root_pid].start_time;
+                    *cells.last_mut().unwrap() = match self.hook_states.get(&(s.root_pid, start)) {
+                        Some(state) => hook_cell(lang, *state),
+                        None => state_cell(lang, session_state(m, &self.history, &tree, self.rules.idle_minutes)),
+                    };
                     let sid = s
                         .session_id
                         .as_deref()
@@ -584,13 +601,54 @@ impl App {
             .collect()
     }
 
+    fn settings(&self) -> Vec<Setting> {
+        let hooks = self
+            .catalog
+            .agents
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.hooks.is_some())
+            .map(|(i, _)| Setting::Hooks(i));
+        SETTINGS.into_iter().chain(hooks).collect()
+    }
+
+    /// Reads, for each agent with hooks, whether agentlens is registered there.
+    fn read_hooks_registered(&mut self) {
+        self.hooks_registered = self
+            .catalog
+            .agents
+            .iter()
+            .filter_map(|a| Some((a.id.clone(), hooks::registered(a.hooks.as_ref()?))))
+            .collect();
+    }
+
+    fn hook_row(&self, lang: Language, agent: usize) -> Row<'static> {
+        let a = &self.catalog.agents[agent];
+        let value = match self.hooks_registered.get(&a.id) {
+            Some(Ok(true)) => t(lang, "on", "켜짐").to_string(),
+            Some(Ok(false)) | None => t(lang, "off", "꺼짐").to_string(),
+            Some(Err(e)) => tf!(lang, "error: {e}", "오류: {e}"),
+        };
+        let settings = a.hooks.as_ref().map(|h| h.settings.clone()).unwrap_or_default();
+        Row::new(vec![
+            Cell::from(tf!(lang, "Agent hooks: {}", "에이전트 훅: {}", a.name)),
+            Cell::from(format!("‹ {value} ›")),
+            Cell::from(tf!(
+                lang,
+                "Shows working / waiting / needs you, reported by the agent ({settings})",
+                "에이전트가 알려 주는 작업 중·입력 대기·확인 필요 표시 ({settings})"
+            )),
+        ])
+    }
+
     fn settings_rows(&self) -> Vec<Row<'static>> {
         let lang = self.lang();
         let r = &self.rules;
-        SETTINGS
+        self.settings()
             .iter()
             .map(|s| {
                 let (name, value, about) = match s {
+                    Setting::Hooks(i) => return self.hook_row(lang, *i),
                     Setting::Language => (
                         t(lang, "Language", "언어"),
                         match r.language {
@@ -669,7 +727,7 @@ impl App {
             View::Network => self.ssh.len(),
             View::Ports => self.visible_ports().len(),
             View::Rules => self.rules_lines().len(),
-            View::Settings => SETTINGS.len(),
+            View::Settings => self.settings().len(),
         }
     }
 
@@ -710,7 +768,7 @@ impl App {
             View::Rules => self.draw_rules(frame, table_area),
             View::Settings => {
                 let [table, info] =
-                    Layout::vertical([Constraint::Length(SETTINGS.len() as u16 + 3), Constraint::Min(6)])
+                    Layout::vertical([Constraint::Length(self.settings().len() as u16 + 3), Constraint::Min(6)])
                         .areas(table_area);
                 self.draw_table(frame, table);
                 frame.render_widget(self.auto_cleanup_text(), info);
@@ -805,7 +863,7 @@ impl App {
                     Constraint::Length(9),
                     Constraint::Length(6),
                     Constraint::Length(7),
-                    Constraint::Length(8),
+                    Constraint::Length(10),
                     Constraint::Fill(2),
                 ],
                 self.session_rows(),
@@ -1339,6 +1397,9 @@ impl App {
     }
 
     fn set_view(&mut self, i: usize) {
+        if VIEWS[i] == View::Settings && self.view != View::Settings {
+            self.read_hooks_registered();
+        }
         if VIEWS[i] == View::Network && self.view != View::Network {
             self.ssh_config = net::load_ssh_config();
             self.ssh_keys = keys::load_default(&self.ssh_config);
@@ -1693,9 +1754,13 @@ impl App {
 
     /// Changes the selected setting, applies it and saves it to the rules file.
     fn change_setting(&mut self, step: isize) {
-        let Some(setting) = SETTINGS.get(self.selected[View::Settings as usize]) else {
+        let Some(setting) = self.settings().get(self.selected[View::Settings as usize]).copied() else {
             return;
         };
+        if let Setting::Hooks(i) = setting {
+            self.toggle_hooks(i);
+            return;
+        }
         let r = &mut self.rules;
         let (key, value) = match setting {
             Setting::Language => {
@@ -1730,6 +1795,7 @@ impl App {
                 r.end_shared = !r.end_shared;
                 ("end_shared", r.end_shared.to_string())
             }
+            Setting::Hooks(_) => unreachable!("handled above"),
         };
         // Starts the interval now, from the current snapshot.
         self.auto_cleanup();
@@ -1749,6 +1815,34 @@ impl App {
                 "이번 실행에만 적용됨, 저장 실패: {e}"
             ),
         };
+    }
+
+    /// Adds or removes agentlens in the agent's own hook settings.
+    fn toggle_hooks(&mut self, agent: usize) {
+        let lang = self.lang();
+        let a = &self.catalog.agents[agent];
+        let Some(def) = a.hooks.clone() else { return };
+        let id = a.id.clone();
+        let on = !matches!(self.hooks_registered.get(&id), Some(Ok(true)));
+        let result = std::env::current_exe()
+            .map_err(|e| e.to_string())
+            .and_then(|exe| hooks::set_registered(&def, &id, &exe, on));
+        self.status = match result {
+            Ok(path) if on => tf!(
+                lang,
+                "registered agentlens in {} (backup next to it); new sessions report their state",
+                "{}에 agentlens를 등록함(옆에 백업); 새 세션부터 상태를 알려 줌",
+                path.display()
+            ),
+            Ok(path) => tf!(
+                lang,
+                "removed agentlens from {}",
+                "{}에서 agentlens를 뺌",
+                path.display()
+            ),
+            Err(e) => tf!(lang, "hooks not changed: {e}", "훅을 바꾸지 못함: {e}"),
+        };
+        self.read_hooks_registered();
     }
 
     fn register_host(&mut self) {
@@ -1891,6 +1985,14 @@ fn state_cell(lang: Language, state: SessionState) -> Cell<'static> {
         SessionState::Working => Cell::from(t(lang, "working", "작업 중")).green(),
         SessionState::Quiet => Cell::from(t(lang, "quiet", "조용함")),
         SessionState::Idle => Cell::from(t(lang, "idle", "유휴")).dim(),
+    }
+}
+
+fn hook_cell(lang: Language, state: HookState) -> Cell<'static> {
+    match state {
+        HookState::Working => Cell::from(t(lang, "working", "작업 중")).green(),
+        HookState::Waiting => Cell::from(t(lang, "waiting", "입력 대기")).cyan(),
+        HookState::Attention => Cell::from(t(lang, "needs you", "확인 필요")).yellow().bold(),
     }
 }
 
@@ -2439,5 +2541,24 @@ mod tests {
         );
         let line = s.lines().find(|l| l.contains("36608")).unwrap();
         assert!(line.contains("quiet"), "0% CPU: {line}");
+    }
+
+    #[test]
+    fn hook_states_win_over_cpu_and_hooks_are_a_setting() {
+        let mut app = app();
+        let start = app.model.as_ref().unwrap().procs[&36608].start_time;
+        app.hook_states.insert((36608, start), HookState::Attention);
+        let line = screen(&mut app)
+            .lines()
+            .find(|l| l.contains("36608"))
+            .unwrap()
+            .to_string();
+        assert!(line.contains("needs you"), "{line}");
+
+        // Only shown here: toggling would change the real agent settings.
+        app.view = View::Settings;
+        let s = screen(&mut app);
+        assert!(s.contains("Agent hooks: Claude Code"), "{s}");
+        assert!(app.settings().contains(&Setting::Hooks(0)));
     }
 }

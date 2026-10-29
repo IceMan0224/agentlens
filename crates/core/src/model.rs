@@ -176,7 +176,7 @@ fn match_host(c: &Catalog, p: &ProcInfo) -> Option<usize> {
     })
 }
 
-fn match_agent(c: &Catalog, p: &ProcInfo) -> Option<usize> {
+pub(crate) fn match_agent(c: &Catalog, p: &ProcInfo) -> Option<usize> {
     let s = stem(p);
     let exe = exe_norm(p);
     // OS binaries never are agents, even when their names collide with short agent commands.

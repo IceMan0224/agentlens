@@ -97,6 +97,20 @@ pub struct AgentDef {
     /// Variable the agent sets on the processes it starts, holding its own PID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pid_env: Option<String>,
+    /// The agent's hook settings, where agentlens can register itself.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hooks: Option<HookDef>,
+}
+
+/// Where an agent keeps its hooks and what its events mean.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HookDef {
+    /// Settings file holding `hooks`; `~/` is the user's home.
+    pub settings: String,
+    /// Agent event (or `<event>:<notification_type>`) -> `start`, `working`, `waiting`,
+    /// `attention` or `end`.
+    pub events: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -217,6 +231,7 @@ impl Catalog {
                     push_new(&mut def.ai_agent, agent.ai_agent);
                     def.session_env = agent.session_env.or(def.session_env.take());
                     def.pid_env = agent.pid_env.or(def.pid_env.take());
+                    def.hooks = agent.hooks.or(def.hooks.take());
                 }
                 None => self.agents.push(agent),
             }

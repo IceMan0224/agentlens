@@ -96,6 +96,11 @@ ai_agent = ["claude-code"]
 session_env = "CLAUDE_CODE_SESSION_ID"
 pid_env = "CLAUDE_PID"
 
+# Registered from Settings. Hooks run in the background (`async`), so the agent never waits.
+[agents.hooks]
+settings = "~/.claude/settings.json"
+events = { SessionStart = "start", UserPromptSubmit = "working", Stop = "waiting", Notification = "attention", "Notification:idle_prompt" = "waiting", SessionEnd = "end" }
+
 [[agents]]
 # Orca launches agent teams through its own `orca` command, which would match the host.
 id = "claude-agent-teams"
