@@ -8,6 +8,9 @@ use crate::origin::{Origins, OwnerGone, Starter};
 /// CPU% (summed over cores) above which a process counts as active in a sample.
 const ACTIVE_CPU: f32 = 1.0;
 
+/// A session counts as working while any of its processes was active this recently.
+pub const WORKING_SECS: u64 = 10;
+
 /// Start of the IANA dynamic port range.
 const DYNAMIC_PORTS: u16 = 49152;
 
@@ -33,6 +36,17 @@ impl History {
         self.last_active.retain(|key, _| self.first_seen.contains_key(key));
     }
 
+    /// Any of `pids` was active within the last `secs` seconds. Unlike `idle_secs`, processes
+    /// never seen active do not count, so a session is not "working" just because monitoring
+    /// started.
+    pub fn active_within(&self, model: &Model, pids: &[u32], secs: u64) -> bool {
+        pids.iter().filter_map(|pid| model.procs.get(pid)).any(|p| {
+            self.last_active
+                .get(&(p.pid, p.start_time))
+                .is_some_and(|at| model.taken_at.saturating_sub(*at) < secs)
+        })
+    }
+
     /// Seconds since any of `pids` was last active. Processes never seen active count from
     /// when monitoring first saw them, so this is a lower bound right after startup.
     pub fn idle_secs(&self, model: &Model, pids: &[u32]) -> u64 {
@@ -49,6 +63,26 @@ impl History {
             .max()
             .unwrap_or(model.taken_at);
         model.taken_at.saturating_sub(latest)
+    }
+}
+
+/// What a session is doing, from the CPU use of its processes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionState {
+    /// Active within `WORKING_SECS`.
+    Working,
+    Quiet,
+    /// Quiet for `idle_minutes` or more.
+    Idle,
+}
+
+pub fn session_state(model: &Model, history: &History, pids: &[u32], idle_minutes: u64) -> SessionState {
+    if history.active_within(model, pids, WORKING_SECS) {
+        SessionState::Working
+    } else if history.idle_secs(model, pids) >= idle_minutes * 60 {
+        SessionState::Idle
+    } else {
+        SessionState::Quiet
     }
 }
 

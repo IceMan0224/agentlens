@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use agentlens_core::actions::{self, KillPlan, Outcome};
 use agentlens_core::catalog::Catalog;
-use agentlens_core::health::{Candidate, CandidateKind, History, candidates, fmt_duration, short_cmd};
+use agentlens_core::health::{
+    Candidate, CandidateKind, History, SessionState, candidates, fmt_duration, session_state, short_cmd,
+};
 use agentlens_core::keys::{self, KeyInfo, SshInventory};
 use agentlens_core::model::{Group, GroupKind, Model, Role, short_path};
 use agentlens_core::net::{self, Port, PortOwner, SshConn, SshHost};
@@ -313,6 +315,7 @@ impl App {
                 Cell::from(mb(m.private_bytes(pids))),
                 Cell::from(format!("{:.1}", m.cpu(pids))),
                 Cell::from(idle.map(fmt_duration).unwrap_or_default()),
+                Cell::from(""),
             ]
         };
 
@@ -423,6 +426,8 @@ impl App {
                     );
                     let mut cells = vec![Cell::from(name), Cell::from(s.root_pid.to_string())];
                     cells.extend(stats(&tree, Some(self.idle(m, &tree))));
+                    let state = session_state(m, &self.history, &tree, self.rules.idle_minutes);
+                    *cells.last_mut().unwrap() = state_cell(lang, state);
                     let sid = s
                         .session_id
                         .as_deref()
@@ -790,6 +795,7 @@ impl App {
                     t(lang, "Private", "메모리"),
                     "CPU%",
                     t(lang, "Idle", "유휴"),
+                    t(lang, "State", "상태"),
                     t(lang, "Info", "정보"),
                 ],
                 vec![
@@ -799,6 +805,7 @@ impl App {
                     Constraint::Length(9),
                     Constraint::Length(6),
                     Constraint::Length(7),
+                    Constraint::Length(8),
                     Constraint::Fill(2),
                 ],
                 self.session_rows(),
@@ -1853,6 +1860,7 @@ fn push_procs(m: &Model, root: u32, indent: usize, rows: &mut Vec<Row<'static>>,
                 Cell::from(mb(p.private_bytes)),
                 Cell::from(format!("{:.1}", p.cpu)),
                 Cell::from(""),
+                Cell::from(""),
                 Cell::from(short_cmd(p)),
             ])
             .style(style),
@@ -1875,6 +1883,14 @@ fn cycle(choices: &[u64], current: u64, step: isize) -> u64 {
     match choices.iter().position(|c| *c == current) {
         Some(i) => choices[(i as isize + step).rem_euclid(choices.len() as isize) as usize],
         None => choices[0],
+    }
+}
+
+fn state_cell(lang: Language, state: SessionState) -> Cell<'static> {
+    match state {
+        SessionState::Working => Cell::from(t(lang, "working", "작업 중")).green(),
+        SessionState::Quiet => Cell::from(t(lang, "quiet", "조용함")),
+        SessionState::Idle => Cell::from(t(lang, "idle", "유휴")).dim(),
     }
 }
 
@@ -2410,5 +2426,18 @@ mod tests {
         assert!(listed_early.contains(&4_100_001), "{listed_early:?}");
         let shell = app.candidates.iter().find(|c| c.root_pid == 4_100_001).unwrap();
         assert!(shell.eligible && app.marked.contains(&4_100_001), "{:?}", shell.reasons);
+    }
+
+    #[test]
+    fn sessions_show_their_state() {
+        let mut app = app();
+        let s = screen(&mut app);
+        // The recorded snapshot has sessions using CPU and sessions doing nothing.
+        assert!(
+            s.contains("State") && s.contains("working") && s.contains("quiet"),
+            "{s}"
+        );
+        let line = s.lines().find(|l| l.contains("36608")).unwrap();
+        assert!(line.contains("quiet"), "0% CPU: {line}");
     }
 }
