@@ -1,0 +1,474 @@
+# Everything agentlens knows about processes, kept out of the code. The user's rules.toml
+# uses the same tables and extends these: list entries are added, and an agent or host with
+# an existing id gains the rule's entries.
+#
+# Names (exe, shells, ...) are matched case-insensitively against the process name without
+# `.exe`. Paths and command-line fragments are matched as lowercase substrings with `/`
+# separators.
+
+[processes]
+shells = [
+    "powershell", "pwsh", "cmd", "bash", "sh", "zsh", "fish", "nu", "dash", "ksh", "tcsh", "csh",
+    "wsl", "wslhost", "conhost", "openconsole", "winpty-agent",
+]
+# Interpreters: agents may run as scripts under them, and their orphans are worth showing.
+runtimes = ["node", "bun", "deno", "python", "pythonw", "uv", "uvx", "npx"]
+# Pseudo-console glue that lives and dies with its client: not shown, never reported alone.
+pty_glue = ["conhost", "openconsole", "winpty-agent"]
+# Never grouped, never killed.
+system = [
+    # Windows
+    "system idle process", "system", "registry", "smss", "csrss", "wininit", "winlogon", "services",
+    "lsass", "svchost", "explorer", "dwm", "fontdrvhost", "sihost", "ctfmon", "taskhostw",
+    "runtimebroker", "userinit",
+    # macOS and Linux
+    "kernel_task", "launchd", "systemd", "init", "kthreadd", "windowserver", "loginwindow",
+]
+# Adopt orphans on Unix: a process whose parent exits is re-parented to one of these.
+reapers = ["launchd", "systemd", "init"]
+# Executables under these never are agents, even when a name collides with a short command.
+system_dirs = ["c:/windows/", "/system/", "/usr/libexec/", "/usr/sbin/", "/sbin/"]
+browsers = ["chrome", "msedge", "chromium", "headless_shell", "chrome-headless-shell"]
+# Helper kinds under an agent: REPL by exact name, sandbox by name substring, MCP server by a
+# whole word of its command line.
+repl = ["node_repl"]
+sandbox = ["sandbox"]
+mcp = ["mcp", "modelcontextprotocol"]
+# Command-line flags (or subcommands) followed by a session id; `--flag=id` works too.
+session_flags = ["--resume", "-r", "--session", "--session-id", "resume"]
+
+[ssh]
+clients = ["ssh", "plink", "putty", "sftp", "scp"]
+# Inbound logins; newer OpenSSH (and macOS) hand each one to an `sshd-session` process.
+servers = ["sshd", "sshd-session"]
+# Ports from ~/.ssh/config are added to these.
+ports = [22]
+
+[providers]
+# Environment variables that point an agent at another model endpoint.
+env = ["ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"]
+# Endpoints of the agents' own vendors: not shown as a provider.
+first_party = ["anthropic.com", "openai.com"]
+
+[[providers.known]]
+name = "GLM"
+url = ["z.ai", "bigmodel"]
+cmd = ["glm-", "zai/", "zhipu"]
+
+[[providers.known]]
+name = "Kimi"
+url = ["moonshot"]
+
+[[providers.known]]
+name = "DeepSeek"
+url = ["deepseek"]
+
+[[providers.known]]
+name = "Qwen"
+url = ["dashscope"]
+
+[[providers.known]]
+name = "OpenRouter"
+url = ["openrouter"]
+
+# Agents: Orca's catalog of 45. `exe` lists command names; `cmd` lists package paths seen when
+# an agent runs as `node <package>`; `traces` lists paths an agent leaves in the command lines
+# of processes it starts (shell snapshots, runtimes), which mark them as agent machinery.
+
+[[agents]]
+id = "claude"
+name = "Claude Code"
+exe = ["claude"]
+cmd = ["@anthropic-ai/claude-code"]
+traces = ["/.claude/"]
+
+[[agents]]
+# Orca launches agent teams through its own `orca` command, which would match the host.
+id = "claude-agent-teams"
+name = "Claude Agent Teams"
+
+[[agents]]
+id = "codebuddy"
+name = "CodeBuddy"
+exe = ["codebuddy"]
+
+[[agents]]
+id = "openclaude"
+name = "OpenClaude"
+exe = ["openclaude"]
+
+[[agents]]
+id = "codex"
+name = "Codex"
+exe = ["codex"]
+cmd = ["@openai/codex", "/openai/codex/bin/"]
+traces = ["/.codex/", "/openai/codex/"]
+
+[[agents]]
+id = "autohand"
+name = "Autohand"
+exe = ["autohand"]
+
+[[agents]]
+id = "ante"
+name = "Ante"
+exe = ["ante"]
+
+[[agents]]
+id = "trae"
+name = "Trae CLI"
+exe = ["traecli"]
+
+[[agents]]
+id = "opencode"
+name = "OpenCode"
+exe = ["opencode"]
+cmd = ["@opencode/cli", "/opencode-ai/"]
+
+[[agents]]
+id = "opencode2"
+name = "OpenCode 2"
+exe = ["opencode2"]
+
+[[agents]]
+id = "mimo-code"
+name = "MiMo Code"
+exe = ["mimo"]
+
+[[agents]]
+id = "pi"
+name = "Pi"
+exe = ["pi"]
+
+[[agents]]
+id = "omp"
+name = "OMP"
+exe = ["omp"]
+
+[[agents]]
+id = "prime-agent"
+name = "Prime Agent"
+exe = ["prime-agent"]
+
+[[agents]]
+id = "qoder"
+name = "Qoder"
+exe = ["qodercli"]
+
+[[agents]]
+id = "qoder-cn"
+name = "Qoder CN"
+exe = ["qoderclicn"]
+
+[[agents]]
+id = "gemini"
+name = "Gemini CLI"
+exe = ["gemini"]
+cmd = ["@google/gemini-cli"]
+
+[[agents]]
+id = "antigravity"
+name = "Antigravity CLI"
+exe = ["agy"]
+
+[[agents]]
+id = "aider"
+name = "Aider"
+exe = ["aider"]
+
+[[agents]]
+id = "goose"
+name = "Goose"
+exe = ["goose"]
+
+[[agents]]
+id = "amp"
+name = "Amp"
+exe = ["amp"]
+cmd = ["@sourcegraph/amp"]
+
+[[agents]]
+id = "kilo"
+name = "Kilo Code"
+exe = ["kilo"]
+cmd = ["@kilocode/cli"]
+
+[[agents]]
+id = "kiro"
+name = "Kiro CLI"
+exe = ["kiro-cli"]
+
+[[agents]]
+id = "crush"
+name = "Crush"
+exe = ["crush"]
+cmd = ["@charmland/crush"]
+
+[[agents]]
+id = "aug"
+name = "Auggie"
+exe = ["auggie"]
+cmd = ["@augmentcode/auggie"]
+
+[[agents]]
+id = "cline"
+name = "Cline"
+exe = ["cline"]
+
+[[agents]]
+id = "freebuff"
+name = "Freebuff"
+exe = ["freebuff"]
+
+[[agents]]
+id = "codebuff"
+name = "Codebuff"
+exe = ["codebuff"]
+
+[[agents]]
+id = "command-code"
+name = "Command Code"
+exe = ["command-code"]
+
+[[agents]]
+id = "continue"
+name = "Continue"
+exe = ["cn"]
+cmd = ["@continuedev/cli"]
+
+[[agents]]
+id = "cursor"
+name = "Cursor Agent"
+exe = ["cursor-agent"]
+
+[[agents]]
+id = "droid"
+name = "Droid"
+exe = ["droid"]
+
+[[agents]]
+id = "kimi"
+name = "Kimi"
+exe = ["kimi"]
+
+[[agents]]
+id = "mistral-vibe"
+name = "Mistral Vibe"
+exe = ["vibe"]
+
+[[agents]]
+id = "qwen-code"
+name = "Qwen Code"
+exe = ["qwen"]
+cmd = ["@qwen-code/qwen-code"]
+
+[[agents]]
+id = "rovo"
+name = "Rovo Dev"
+exe = ["acli"]
+
+[[agents]]
+id = "hermes"
+name = "Hermes"
+exe = ["hermes"]
+
+[[agents]]
+id = "openclaw"
+name = "OpenClaw"
+exe = ["openclaw"]
+
+[[agents]]
+id = "copilot"
+name = "GitHub Copilot CLI"
+exe = ["copilot"]
+cmd = ["@github/copilot"]
+
+[[agents]]
+id = "grok"
+name = "Grok CLI"
+exe = ["grok"]
+
+[[agents]]
+id = "muse"
+name = "Muse"
+exe = ["muse"]
+
+[[agents]]
+id = "dsh"
+name = "DSH"
+exe = ["dsh-tui"]
+
+[[agents]]
+id = "zcode"
+name = "ZCode"
+exe = ["zcode"]
+cmd = ["@zcode/cli"]
+# Shown next to the agent when nothing in its environment names another provider.
+provider = "GLM"
+
+[[agents]]
+id = "devin"
+name = "Devin"
+exe = ["devin"]
+
+[[agents]]
+id = "jcode"
+name = "JCode"
+exe = ["jcode"]
+
+# Hosts: programs whose children are agent sessions. `path` matches the executable path.
+# `tab_env` names an environment variable the host sets per tab (sessions sharing a value
+# share a tab), `label_env` one whose value labels the tab (a `<id>::<path>` value is shown
+# by its path), `launch_env` one set on everything an agent launched, and `traces` paths in
+# the command lines of the host's agent tooling.
+
+[[hosts]]
+id = "orca"
+name = "Orca"
+exe = ["orca"]
+path = ["/orca.app/"]
+tab_env = "ORCA_TAB_ID"
+label_env = "ORCA_WORKTREE_ID"
+launch_env = "ORCA_AGENT_LAUNCH"
+traces = ["/orca/agent-hooks/"]
+
+[[hosts]]
+id = "claude-desktop"
+name = "Claude Desktop"
+path = ["/anthropicclaude/", "/claude.app/"]
+
+[[hosts]]
+id = "vscode"
+name = "VS Code"
+exe = ["code", "code - insiders"]
+path = ["/visual studio code.app/", "/share/code/"]
+
+[[hosts]]
+id = "cursor"
+name = "Cursor"
+exe = ["cursor"]
+path = ["/cursor.app/"]
+
+[[hosts]]
+id = "windsurf"
+name = "Windsurf"
+exe = ["windsurf"]
+path = ["/windsurf.app/"]
+
+[[hosts]]
+id = "kiro"
+name = "Kiro"
+exe = ["kiro"]
+path = ["/kiro.app/"]
+
+[[hosts]]
+id = "antigravity"
+name = "Antigravity"
+exe = ["antigravity"]
+path = ["/antigravity.app/"]
+
+[[hosts]]
+id = "trae"
+name = "Trae"
+exe = ["trae"]
+path = ["/trae.app/"]
+
+[[hosts]]
+id = "zed"
+name = "Zed"
+exe = ["zed", "zed-editor"]
+path = ["/zed.app/"]
+
+[[hosts]]
+id = "jetbrains"
+name = "JetBrains IDE"
+exe = [
+    "idea64", "pycharm64", "webstorm64", "rider64", "clion64", "goland64", "rustrover64",
+    "phpstorm64", "datagrip64",
+]
+
+[[hosts]]
+id = "windows-terminal"
+name = "Windows Terminal"
+exe = ["windowsterminal"]
+# Unique per tab and pane.
+tab_env = "WT_SESSION"
+
+[[hosts]]
+id = "macos-terminal"
+name = "Terminal"
+path = ["/terminal.app/"]
+
+[[hosts]]
+id = "iterm2"
+name = "iTerm2"
+exe = ["iterm2"]
+path = ["/iterm.app/"]
+
+[[hosts]]
+id = "ghostty"
+name = "Ghostty"
+exe = ["ghostty"]
+path = ["/ghostty.app/"]
+
+[[hosts]]
+id = "kitty"
+name = "kitty"
+exe = ["kitty"]
+path = ["/kitty.app/"]
+
+[[hosts]]
+id = "wezterm"
+name = "WezTerm"
+exe = ["wezterm-gui"]
+path = ["/wezterm.app/"]
+
+[[hosts]]
+id = "alacritty"
+name = "Alacritty"
+exe = ["alacritty"]
+path = ["/alacritty.app/"]
+
+[[hosts]]
+id = "warp"
+name = "Warp"
+exe = ["warp"]
+path = ["/warp.app/"]
+
+[[hosts]]
+id = "wave"
+name = "Wave"
+exe = ["wave", "waveterm"]
+path = ["/wave.app/"]
+
+[[hosts]]
+id = "tabby"
+name = "Tabby"
+exe = ["tabby"]
+path = ["/tabby.app/"]
+
+[[hosts]]
+id = "linux-terminal"
+name = "Terminal"
+exe = ["gnome-terminal-server", "konsole", "xfce4-terminal", "tilix", "terminator", "xterm"]
+
+# Remote logins and multiplexers: each login or pane is a tab.
+[[hosts]]
+id = "ssh"
+name = "SSH login"
+exe = ["sshd", "sshd-session"]
+
+[[hosts]]
+id = "tmux"
+name = "tmux"
+exe = ["tmux"]
+
+[[hosts]]
+id = "screen"
+name = "screen"
+exe = ["screen"]
+
+[[hosts]]
+id = "ego"
+name = "ego browser"
+exe = ["ego"]
