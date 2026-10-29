@@ -86,3 +86,9 @@ fn signal(pid: u32, sig: libc::c_int) -> Result<(), Outcome> {
 pub fn windowed_pids() -> std::collections::HashSet<u32> {
     std::collections::HashSet::new()
 }
+
+/// Not checked on Unix yet: the pipe's other end has to be found among every process's open
+/// files (`/proc/*/fd` on Linux, `proc_pidfdinfo` on macOS), which is untested here.
+pub fn stdin_closed(_pid: u32) -> Option<bool> {
+    None
+}

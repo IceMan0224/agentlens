@@ -14,6 +14,7 @@ use agentlens_core::net::{self, Port, PortOwner, SshConn, SshHost};
 use agentlens_core::origin::Origins;
 use agentlens_core::rules::{Language, Rules, rules_path};
 use agentlens_core::snapshot::windowed_pids;
+use agentlens_core::stdio::StdioProbe;
 use agentlens_core::{Collector, Snapshot};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
@@ -132,6 +133,7 @@ pub struct App {
     model: Option<Model>,
     history: History,
     origins: Origins,
+    stdio: StdioProbe,
     candidates: Vec<Candidate>,
     ssh: Vec<SshConn>,
     ports: Vec<Port>,
@@ -184,6 +186,7 @@ impl App {
             model: None,
             history: History::default(),
             origins: Origins::default(),
+            stdio: StdioProbe::default(),
             candidates: Vec::new(),
             ssh: Vec::new(),
             ports: Vec::new(),
@@ -216,6 +219,8 @@ impl App {
         let model = Model::build(snapshot, &self.catalog);
         self.history.update(&model);
         self.origins.update(&model, &self.catalog);
+        let closed = self.stdio.update(&model);
+        self.origins.note_stdio_closed(&model, &closed);
         // The lists are rebuilt and re-sorted every refresh: keep the cursor on the same row.
         let cleanup_key = |c: &Candidate| (c.kind, c.root_pid);
         let ssh_key = |c: &SshConn| (c.pid, c.remote.clone(), c.local.clone());
@@ -1049,7 +1054,9 @@ impl App {
                 "Whatever an ended session left behind is an orphan too, found two ways: the dashboard saw it \
                  under that session, or its environment names the session (AI_AGENT, CLAUDE_PID, \
                  CLAUDE_CODE_SESSION_ID), which also covers leftovers from before the dashboard started. \
-                 It counts 15 s after its owner is seen gone (owner-gone, from session …).",
+                 It counts 15 s after its owner is seen gone (owner-gone, from session …). On Windows a \
+                 parentless process whose input pipe lost its writer (stdio-closed) can never be reached \
+                 again; it is proposed when it is a runtime or shell, shown otherwise.",
                 "Proposed for cleanup (yellow): orphans holding agent machinery, and everything an ended \
                  session left, dev servers included. Leftovers with a window or that a live session is \
                  connected to are kept unless Settings says otherwise.",
@@ -1066,7 +1073,9 @@ impl App {
                  시스템 프로세스는 제외합니다.",
                 "끝난 세션이 남긴 것도 고아입니다. 대시보드가 그 세션 아래에서 본 적이 있거나, 환경변수(AI_AGENT, \
                  CLAUDE_PID, CLAUDE_CODE_SESSION_ID)에 세션이 적혀 있으면 알 수 있어 대시보드를 켜기 전에 남은 것도 \
-                 찾습니다. 주인이 사라진 것을 본 뒤 15초가 지나면 고아로 봅니다(주인 세션 종료, 출처 세션 …).",
+                 찾습니다. 주인이 사라진 것을 본 뒤 15초가 지나면 고아로 봅니다(주인 세션 종료, 출처 세션 …). Windows에서는 \
+                 부모 없는 프로세스의 입력 파이프에 쓰는 쪽이 모두 닫혔으면(입력 채널 끊김) 다시는 요청을 받을 수 \
+                 없으므로, 런타임·셸이면 제안하고 그 밖에는 보여 줍니다.",
                 "정리 후보로 기본 제안(노란색)하는 것: 에이전트 구성요소가 남은 고아, 그리고 dev 서버를 포함해 끝난 \
                  세션이 남긴 모든 것. 창이 있거나 살아 있는 세션이 연결해 쓰는 것은 설정에서 바꾸지 않는 한 남겨 둡니다.",
             ],

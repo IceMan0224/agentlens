@@ -33,6 +33,7 @@ const WHOLE: &[(&str, &str)] = &[
     ("agent-infra", "에이전트 기반 프로세스"),
     ("agent-command", "에이전트가 실행한 명령"),
     ("has-window", "창 있음"),
+    ("stdio-closed", "입력 채널 끊김"),
 ];
 
 /// Evidence with a value after the word.

@@ -7,11 +7,12 @@
 //! - `read_cwd_env` — cwd and environment for processes whose `details` left them out
 //! - `terminate_all` — end processes after re-checking each one's start time
 //! - `windowed_pids` — processes with a visible window (Windows only; empty elsewhere)
+//! - `stdin_closed` — whether the pipe on a process's input lost its writer (Windows only)
 
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
-pub use unix::{read_cwd_env, terminate_all, windowed_pids};
+pub use unix::{read_cwd_env, stdin_closed, terminate_all, windowed_pids};
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -26,7 +27,7 @@ pub use macos::{Lister, details, start_time};
 #[cfg(windows)]
 mod win;
 #[cfg(windows)]
-pub use win::{Lister, details, read_cwd_env, terminate_all, windowed_pids};
+pub use win::{Lister, details, read_cwd_env, stdin_closed, terminate_all, windowed_pids};
 
 pub struct RawProc {
     pub pid: u32,

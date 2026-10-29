@@ -113,8 +113,11 @@ pub fn candidates(
             OrphanReason::Reparented => "adopted-by-init".to_string(),
         }];
         let owner = gone(orphan.pid);
+        let stdio = owner.is_none() && origins.stdio_closed(model, orphan.pid, policy.owner_gone_grace);
         if let Some(owner) = owner {
             owner_reasons(owner, &mut reasons);
+        } else if stdio {
+            reasons.push("stdio-closed".into());
         } else if !orphan.agent_related {
             reasons.push(
                 if orphan.launched_by_agent {
@@ -128,18 +131,27 @@ pub fn candidates(
         if let Some(tab) = &orphan.origin {
             reasons.push(format!("from tab {tab}"));
         }
-        let eligible = orphan.agent_related || owner.is_some();
+        let eligible = orphan.agent_related || owner.is_some() || stdio;
         out.push(orphan_candidate(model, history, orphan.pid, reasons, eligible));
     }
 
     // Leftovers of ended sessions that the snapshot alone does not show as orphans: their
     // parent is still there (a wrapper, a host), or they are not runtimes.
-    let covered: HashSet<u32> = model.orphans.iter().flat_map(|o| model.subtree(o.pid)).collect();
+    let mut covered: HashSet<u32> = model.orphans.iter().flat_map(|o| model.subtree(o.pid)).collect();
     for pid in origins.gone_roots(model, policy.owner_gone_grace) {
         if let (false, Some(owner)) = (covered.contains(&pid), gone(pid)) {
             let mut reasons = Vec::new();
             owner_reasons(owner, &mut reasons);
             out.push(orphan_candidate(model, history, pid, reasons, true));
+            covered.extend(model.subtree(pid));
+        }
+    }
+    // Parentless programs nobody can reach any more, with nothing else saying an agent started
+    // them: shown, not proposed.
+    for pid in origins.stdio_closed_pids(model, policy.owner_gone_grace) {
+        if !covered.contains(&pid) {
+            let reasons = vec!["stdio-closed".to_string(), "not-agent".to_string()];
+            out.push(orphan_candidate(model, history, pid, reasons, false));
         }
     }
 

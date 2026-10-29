@@ -63,6 +63,11 @@ phys_footprint, Linux는 상주 페이지에서 공유 페이지를 뺀 값(`sta
       남습니다. Claude Code는 `AI_AGENT`(`…_harness`: MCP 서버 등 직접 띄운 것, `…_agent`: 모델이 실행한 명령),
       `CLAUDE_CODE_SESSION_ID`, `CLAUDE_PID`를 넣습니다. 그래서 대시보드를 켜기 전에 남은 것도 찾습니다.
       변수 이름은 카탈로그(`agent_env`, 에이전트별 `ai_agent`·`session_env`·`pid_env`)에 있습니다.
+    - 통신 채널 끊김(Windows): MCP 서버·언어 서버·REPL처럼 표준 입력 파이프로 요청을 받는 프로세스는, 그 파이프에
+      쓰는 쪽이 모두 닫히면 다시는 요청을 받을 수 없습니다. 부모가 사라진 프로세스만 확인하며(`stdio-closed`),
+      런타임·셸이면 제안하고 그 밖의 프로그램은 보여 주기만 합니다. 살아 있는 서버는 입력을 기다리는 동안 확인이
+      멈추므로 확인마다 작은 스레드를 쓰고, 파이프가 닫히는 순간 그 확인이 끝나며 알려 줍니다. macOS·Linux는 아직
+      지원하지 않습니다.
     - 주인이 사라진 것을 본 뒤 15초가 지나야 고아로 봅니다(정상 종료 중인 자식, `docker run` 서버의 정지 시간).
       살아 있는 세션에서 일부러 떼어 낸 프로세스(`nohup … &`)나, 끝난 세션 안에서 시작돼 아직 살아 있는 다른
       에이전트 세션은 고아가 아닙니다.
@@ -165,7 +170,7 @@ cargo test
 
 - `crates/core/tests/fixture.rs`: 실제 스냅샷(Orca 탭 11개)으로 묶음·판정 회귀 테스트
 - `crates/core/tests/unix_model.rs`: macOS 형태의 트리(Terminal.app, SSH 로그인, launchd 입양 고아)
-- `crates/core/tests/origin.rs`: 끝난 세션이 남긴 것(계보·출생 기록, 유예 시간, PID 재사용, 중첩 세션, 예외 규칙)
+- `crates/core/tests/origin.rs`: 끝난 세션이 남긴 것(계보·출생 기록, 통신 채널 끊김, 유예 시간, PID 재사용, 중첩 세션, 예외 규칙)
 - `crates/core/src/sys/*`: OS별 수집 단위 테스트(자기 프로세스 대조, `/proc/stat`·`KERN_PROCARGS2` 파싱)
 - `crates/core/tests/live.rs`: 실제 프로세스로 트리 종료, PID 재사용 보호, 자기 보호, SSH 감지·끊기
   (Windows, macOS, Linux 모두에서 실행)

@@ -370,6 +370,11 @@ fn tcp_sockets() -> (Vec<TcpConn>, Vec<Listener>) {
     (conns, listening)
 }
 
+/// See `sys::stdin_closed`: blocks while a live reader waits on the pipe.
+pub(crate) fn stdin_closed(pid: u32) -> Option<bool> {
+    sys::stdin_closed(pid)
+}
+
 /// Processes owning a visible window (Windows; empty elsewhere).
 pub fn windowed_pids() -> std::collections::HashSet<u32> {
     sys::windowed_pids()

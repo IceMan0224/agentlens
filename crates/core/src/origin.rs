@@ -40,6 +40,17 @@ pub struct Origins {
     gone_since: HashMap<ProcKey, u64>,
     /// Owner gone as of the last update, by PID.
     gone: HashMap<u32, OwnerGone>,
+    /// Outside any running session, but its owner is known to be alive (moved out on purpose).
+    owned: HashSet<u32>,
+    /// When each process was first seen with the pipe on its input closed (`stdio::StdioProbe`).
+    stdio_since: HashMap<ProcKey, u64>,
+}
+
+/// What a process's environment says about its owner.
+enum Birth {
+    Gone(String),
+    Alive,
+    Unnamed,
 }
 
 fn key(p: &ProcInfo) -> ProcKey {
@@ -64,6 +75,39 @@ fn ai_agent<'a>(catalog: &'a Catalog, p: &ProcInfo) -> (Option<&'a AgentDef>, Op
     };
     let agent = catalog.agents.iter().find(|a| a.ai_agent.iter().any(|n| n == name));
     (agent, starter)
+}
+
+/// The owner a process's environment names: the agent named by `AI_AGENT`, else any agent
+/// whose variables are set.
+fn birth(
+    model: &Model,
+    catalog: &Catalog,
+    p: &ProcInfo,
+    agent: Option<&AgentDef>,
+    live_sessions: &HashSet<&str>,
+) -> Birth {
+    for a in agent.into_iter().chain(catalog.agents.iter()) {
+        if let Some(pid) = a.pid_env.as_deref().and_then(|k| env(p, k)?.parse::<u32>().ok()) {
+            let alive = model
+                .procs
+                .get(&pid)
+                .is_some_and(|o| matches!(model.roles.get(&pid), Some(Role::Agent(_))) && o.start_time <= p.start_time);
+            return if alive {
+                Birth::Alive
+            } else {
+                Birth::Gone(format!("{} pid {pid}", a.name))
+            };
+        }
+        if let Some(id) = a.session_env.as_deref().and_then(|k| env(p, k)) {
+            let short: String = id.chars().take(8).collect();
+            return if live_sessions.contains(id) {
+                Birth::Alive
+            } else {
+                Birth::Gone(format!("{} session {short}", a.name))
+            };
+        }
+    }
+    Birth::Unnamed
 }
 
 impl Origins {
@@ -106,15 +150,23 @@ impl Origins {
         }
 
         let mut gone = HashMap::new();
+        self.owned.clear();
         for p in unowned {
             let (agent, starter) = ai_agent(catalog, p);
             let origin = match self.seen.get(&key(p)) {
                 // Seen under a session that is still running: moved out on purpose (`nohup`).
-                Some((root, _)) if alive(model, *root) => continue,
+                Some((root, _)) if alive(model, *root) => {
+                    self.owned.insert(p.pid);
+                    continue;
+                }
                 Some((_, label)) => label.clone(),
-                None => match self.birth_owner_gone(model, catalog, p, agent, &live_sessions) {
-                    Some(origin) => origin,
-                    None => continue,
+                None => match birth(model, catalog, p, agent, &live_sessions) {
+                    Birth::Gone(origin) => origin,
+                    Birth::Alive => {
+                        self.owned.insert(p.pid);
+                        continue;
+                    }
+                    Birth::Unnamed => continue,
                 },
             };
             let since = *self.gone_since.entry(key(p)).or_insert(now);
@@ -128,31 +180,37 @@ impl Origins {
         self.gone = gone;
     }
 
-    /// The origin of a process whose environment names an owner that is gone; `None` when the
-    /// owner is alive or not named.
-    fn birth_owner_gone(
-        &self,
-        model: &Model,
-        catalog: &Catalog,
-        p: &ProcInfo,
-        agent: Option<&AgentDef>,
-        live_sessions: &HashSet<&str>,
-    ) -> Option<String> {
-        // The agent named by `AI_AGENT`, else any agent whose variables are set.
-        let agents = agent.into_iter().chain(catalog.agents.iter());
-        for a in agents {
-            if let Some(pid) = a.pid_env.as_deref().and_then(|k| env(p, k)?.parse::<u32>().ok()) {
-                let owner_alive = model.procs.get(&pid).is_some_and(|o| {
-                    matches!(model.roles.get(&pid), Some(Role::Agent(_))) && o.start_time <= p.start_time
-                });
-                return (!owner_alive).then(|| format!("{} pid {pid}", a.name));
-            }
-            if let Some(id) = a.session_env.as_deref().and_then(|k| env(p, k)) {
-                let short: String = id.chars().take(8).collect();
-                return (!live_sessions.contains(id)).then(|| format!("{} session {short}", a.name));
-            }
+    /// Records which processes have lost the writer of their input pipe.
+    pub fn note_stdio_closed(&mut self, model: &Model, closed: &HashSet<ProcKey>) {
+        self.stdio_since.retain(|k, _| closed.contains(k));
+        for k in closed {
+            self.stdio_since.entry(*k).or_insert(model.taken_at);
         }
-        None
+    }
+
+    /// Nobody has been able to write to the process's input for at least `grace` seconds, and
+    /// its owner is not known to be alive.
+    pub fn stdio_closed(&self, model: &Model, pid: u32, grace: u64) -> bool {
+        !self.owned.contains(&pid)
+            && model.procs.get(&pid).is_some_and(|p| {
+                self.stdio_since
+                    .get(&key(p))
+                    .is_some_and(|since| model.taken_at.saturating_sub(*since) >= grace)
+            })
+    }
+
+    /// Processes whose input pipe has been closed for at least `grace` seconds.
+    pub fn stdio_closed_pids(&self, model: &Model, grace: u64) -> Vec<u32> {
+        let mut pids: Vec<u32> = self
+            .stdio_since
+            .iter()
+            .filter(|(k, since)| {
+                alive(model, **k) && !self.owned.contains(&k.0) && model.taken_at.saturating_sub(**since) >= grace
+            })
+            .map(|(k, _)| k.0)
+            .collect();
+        pids.sort_unstable();
+        pids
     }
 
     /// The process's owner is gone and has been for at least `grace` seconds.

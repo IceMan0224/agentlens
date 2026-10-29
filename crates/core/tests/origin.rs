@@ -297,3 +297,55 @@ fn leftovers_with_a_window_or_in_use_are_kept_unless_asked() {
     let found = orphans(&m, &origins, &end_all, HashSet::from([13]));
     assert!(find(&found, 13).unwrap().eligible && find(&found, 14).unwrap().eligible);
 }
+
+#[test]
+fn a_parentless_process_nobody_can_reach_is_proposed_when_it_is_a_runtime() {
+    // No lineage, no birth record: only the closed input pipe says it is useless.
+    let processes = vec![
+        proc(40, 4_000_000, NODE, &["node", r"C:\x\server.js"], &[]),
+        proc(41, 4_000_000, r"C:\tools\sync.exe", &["sync"], &[]),
+    ];
+    let m = model(T0, processes.clone(), Vec::new());
+    let mut origins = Origins::default();
+    origins.update(&m, &Catalog::builtin());
+    let closed: HashSet<(u32, u64)> = m.procs.values().map(|p| (p.pid, p.start_time)).collect();
+    origins.note_stdio_closed(&m, &closed);
+    // Listed as a runtime orphan, but not proposed before the grace.
+    assert!(
+        !find(&orphans(&m, &origins, &policy(), HashSet::new()), 40)
+            .unwrap()
+            .eligible
+    );
+
+    let later = model(T0 + OWNER_GONE_GRACE_SECS, processes, Vec::new());
+    origins.update(&later, &Catalog::builtin());
+    origins.note_stdio_closed(&later, &closed);
+    let found = orphans(&later, &origins, &policy(), HashSet::new());
+    let node = find(&found, 40).unwrap();
+    assert!(
+        node.eligible && node.reasons.iter().any(|r| r == "stdio-closed"),
+        "{:?}",
+        node.reasons
+    );
+    let other = find(&found, 41).expect("shown");
+    assert!(!other.eligible && other.reasons.iter().any(|r| r == "stdio-closed"));
+}
+
+#[test]
+fn a_closed_input_does_not_make_a_live_sessions_server_a_leftover() {
+    // `echo config | node server.js &` from a session that keeps running.
+    let (_, cmd_env) = claude_env();
+    let mut processes = session(&[], &[]);
+    processes.push(proc(40, 4_000_000, NODE, &["node", "server.js"], &cmd_env));
+    let m = model(T0 + 60, processes, Vec::new());
+    let mut origins = Origins::default();
+    origins.update(&m, &Catalog::builtin());
+    origins.note_stdio_closed(&m, &HashSet::from([(40, m.procs[&40].start_time)]));
+    let quick = Policy {
+        owner_gone_grace: 0,
+        ..policy()
+    };
+    let found = orphans(&m, &origins, &quick, HashSet::new());
+    let server = find(&found, 40).expect("still listed as a parentless runtime");
+    assert!(!server.eligible, "{:?}", server.reasons);
+}

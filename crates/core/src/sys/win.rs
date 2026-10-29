@@ -222,6 +222,84 @@ fn terminate(pid: u32, start_time: u64) -> Outcome {
 }
 
 /// Same conversion as the process list's start time.
+/// Whether the pipe on the process's standard input has lost its writer: `Some(true)` when
+/// every write end is closed (nobody can send it anything again), `Some(false)` when one is
+/// open, `None` when its input is not a pipe or cannot be read.
+///
+/// Blocks while the target has a synchronous read pending on the pipe, which is how a live
+/// stdio server waits; it returns once data arrives or the writer closes. Call it off the UI
+/// thread (`stdio::StdioProbe`).
+pub fn stdin_closed(pid: u32) -> Option<bool> {
+    use windows::Wdk::System::Threading::ProcessBasicInformation;
+    use windows::Win32::Foundation::{DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_BROKEN_PIPE};
+    use windows::Win32::Storage::FileSystem::{FILE_TYPE_PIPE, GetFileType};
+    use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+    use windows::Win32::System::Pipes::PeekNamedPipe;
+    use windows::Win32::System::Threading::{
+        GetCurrentProcess, PROCESS_BASIC_INFORMATION, PROCESS_DUP_HANDLE, PROCESS_VM_READ,
+    };
+
+    // SAFETY: reads plain values from the target's memory into locals; every handle opened here
+    // is closed here or by the worker below.
+    let dup = unsafe {
+        let access = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ | PROCESS_DUP_HANDLE;
+        let process = OpenProcess(access, false, pid).ok()?;
+        let read = |addr: usize| {
+            let mut value = 0usize;
+            ReadProcessMemory(
+                process,
+                addr as *const _,
+                &mut value as *mut usize as *mut _,
+                size_of::<usize>(),
+                None,
+            )
+            .ok()
+            .map(|_| value)
+        };
+        let mut info = PROCESS_BASIC_INFORMATION::default();
+        let mut len = 0;
+        let ok = NtQueryInformationProcess(
+            process,
+            ProcessBasicInformation,
+            &mut info as *mut _ as *mut _,
+            size_of::<PROCESS_BASIC_INFORMATION>() as u32,
+            &mut len,
+        )
+        .is_ok();
+        // PEB.ProcessParameters, then RTL_USER_PROCESS_PARAMETERS.StandardInput (64-bit layout).
+        let stdin = ok
+            .then(|| read(info.PebBaseAddress as usize + 0x20))
+            .flatten()
+            .and_then(|params| read(params + 0x20))
+            .filter(|h| *h != 0);
+        let mut dup = HANDLE::default();
+        let copied = stdin.is_some_and(|h| {
+            DuplicateHandle(
+                process,
+                HANDLE(h as *mut _),
+                GetCurrentProcess(),
+                &mut dup,
+                0,
+                false,
+                DUPLICATE_SAME_ACCESS,
+            )
+            .is_ok()
+        });
+        let _ = CloseHandle(process);
+        copied.then_some(dup)?
+    };
+    // SAFETY: the duplicated handle is ours and closed here.
+    unsafe {
+        let state = (GetFileType(dup) == FILE_TYPE_PIPE).then(|| match PeekNamedPipe(dup, None, 0, None, None, None) {
+            Ok(()) => Some(false),
+            Err(e) if e.code() == ERROR_BROKEN_PIPE.to_hresult() => Some(true),
+            Err(_) => None,
+        });
+        let _ = CloseHandle(dup);
+        state.flatten()
+    }
+}
+
 /// Processes owning a visible, titled top-level window: programs the user sees and works with.
 pub fn windowed_pids() -> std::collections::HashSet<u32> {
     unsafe extern "system" fn add(hwnd: HWND, found: LPARAM) -> BOOL {
@@ -332,5 +410,28 @@ mod tests {
     fn splits_quoted_arguments() {
         let wide: Vec<u16> = "\"C:\\Program Files\\x.exe\" -p 22 \"a b\"\0".encode_utf16().collect();
         assert_eq!(split_args(&wide), ["C:\\Program Files\\x.exe", "-p", "22", "a b"]);
+    }
+
+    #[test]
+    fn stdin_closed_tells_an_open_pipe_from_one_without_writer() {
+        use std::process::{Command, Stdio};
+        // ping never reads its input, so checking never waits behind a read.
+        let mut child = Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let open = stdin_closed(child.id());
+        drop(child.stdin.take());
+        let closed = stdin_closed(child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+        assert_eq!((open, closed), (Some(false), Some(true)));
+        assert_eq!(
+            stdin_closed(std::process::id()),
+            stdin_closed(std::process::id()),
+            "stable"
+        );
     }
 }

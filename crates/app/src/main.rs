@@ -9,6 +9,7 @@ use agentlens_core::health::{History, Policy, candidates};
 use agentlens_core::model::Model;
 use agentlens_core::origin::Origins;
 use agentlens_core::rules::Rules;
+use agentlens_core::stdio::StdioProbe;
 use agentlens_core::{Collector, Snapshot, install, net};
 
 const USAGE: &str = "usage: agentlens [--report [snapshot.json] | --dump-json]";
@@ -35,6 +36,13 @@ fn main() -> anyhow::Result<()> {
             history.update(&model);
             let mut origins = Origins::default();
             origins.update(&model, &catalog);
+            // Pipes can only be checked on processes that are running now.
+            if args.get(1).is_none() {
+                let mut probe = StdioProbe::default();
+                probe.update(&model);
+                std::thread::sleep(Duration::from_millis(300));
+                origins.note_stdio_closed(&model, &probe.update(&model));
+            }
             // A report sees one moment, so there is no waiting for an owner to stay gone.
             let policy = Policy {
                 owner_gone_grace: 0,
