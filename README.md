@@ -1,53 +1,76 @@
-# agentlens
+<h1 align="center">agentlens</h1>
 
-**English** | [한국어](README.ko.md)
+<p align="center">
+  <b>See every process your coding agents started, and safely end what they left behind.</b>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-orange.svg)
-![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <img alt="Rust 1.88+" src="https://img.shields.io/badge/rust-1.88%2B-orange.svg">
+  <img alt="Windows | macOS | Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg">
+</p>
 
-**A terminal dashboard for the processes your coding agents leave running.**
+<p align="center"><b>English</b> | <a href="README.ko.md">한국어</a></p>
 
-agentlens groups every Claude Code, Codex, opencode, … process by **host → tab → session →
-child processes**, shows what each session is doing, and finds the MCP servers, dev servers
-and shells that ended sessions left behind, so you can end them safely. It also shows the SSH
-connections and listening ports those processes own.
+<p align="center">
+  <img src="docs/images/demo.gif" alt="agentlens: agent sessions grouped by host and tab, a closed session's leftover MCP server with its evidence, listening ports and SSH connections" width="100%">
+</p>
 
-Task Manager shows 17 `node.exe` and 12 `node_repl.exe`. agentlens shows
-*Orca › acme/web-app › Claude Code › its bash, MCP servers and REPL*.
-
-## Why
+## Why agentlens?
 
 Coding agents start a lot of processes: MCP servers, REPLs, language servers, dev servers,
-shells. When a terminal tab is closed or an agent crashes, many of them keep running, and some
-grow to hundreds of megabytes. They all look alike in a process list, so it is hard to tell which
-ones are still in use, and ending the wrong one kills a live session.
+shells. Then:
 
-## Features
+- **They outlive their sessions.** Close a terminal tab or let an agent crash, and its MCP servers,
+  dev servers and shells keep running. Some of them use hundreds of megabytes each, and they pile
+  up over a day.
+- **They all look alike.** Task Manager or `htop` shows 17 `node.exe` and 12 `node_repl.exe`. Which
+  ones belong to the session you are working in?
+- **Guessing is dangerous.** End the wrong `node` and you kill a live session in the middle of its
+  work.
 
-- **Sessions by host and tab**: Orca, VS Code, Cursor, Windsurf (including remote servers),
-  JetBrains, Windows Terminal, iTerm2, Ghostty, WezTerm, tmux, SSH logins, WSL and more. Tabs
-  are told apart by the environment variables hosts set. Programs the catalog does not know
-  are grouped as "unregistered" and can be registered with one key.
-- **45 agents**: Claude Code, Codex, opencode, Gemini CLI, Cursor Agent, Copilot CLI, Aider,
-  Goose, Amp, Kiro, Qwen Code, ZCode and more, including agents running as `node <script>`.
-- **Session state**: working, quiet or idle from CPU use. With agent hooks switched on, the agent
-  itself reports **waiting for input** and **needs you** (permission prompts).
-- **Leftover detection** that does not rely on process names:
-  - *lineage*: what the dashboard saw under a session that has since ended;
-  - *birth record*: the session id and PID agents write into the environment of everything they
-    start (`AI_AGENT`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_PID`), which outlives the parent;
-  - *closed channel* (Windows): stdio servers whose input pipe no longer has a writer.
-- **Safe cleanup**: refuses hosts, system processes, agentlens's own terminal and anything matching
-  your `protect` rules. Ends parents before children and re-checks each PID's start time first.
-  Confirmation takes an explicit `y`. Optional automatic cleanup.
-- **Network and ports**: SSH connections with `~/.ssh/config` aliases resolved, keys and known
-  hosts (read-only), and listening ports with their owning session.
-- **Light**: about 9 MB of memory and 1–3% of one core while idle; native kernel interfaces on
-  each OS.
-- **Host-independent, data-driven**: what agentlens knows about agents, hosts and processes lives
-  in [`catalog.toml`](crates/core/catalog.toml). Your `rules.toml` extends it in the same format.
-- English and Korean UI.
+agentlens answers two questions about every process: **whose is it, and is its owner still
+there?** It groups processes by *host → tab → agent session*, finds what ended sessions left
+behind from evidence rather than names, and ends them only when it is safe to.
+
+## Highlights
+
+- **Knows whose process it is.** It builds a host → tab → session → process tree for 45 agents
+  (Claude Code, Codex, opencode, Gemini CLI, Copilot CLI, Aider, Goose, …). Supported hosts include
+  Orca, VS Code, Cursor, JetBrains, Windows Terminal, iTerm2, Ghostty, tmux, SSH logins and WSL.
+- **Finds leftovers by evidence, not by name.** It records what it saw under a session (lineage). It
+  reads the session and PID that agents write into everything they start (birth record), and on
+  Windows it checks whether anyone can still talk to a stdio server. Every candidate shows the
+  evidence, for example `owner-gone, from session Claude Code @ Orca / acme/web-app, agent-infra`.
+- **Safe by design.**
+  - It never ends hosts, system processes, its own terminal, or anything you `protect`.
+  - It ends parents before children and re-checks each PID's start time right before ending it.
+  - Confirmation takes an explicit `y`.
+  - Apps with a window, and processes another live session is still using, are kept unless you
+    ask otherwise.
+- **Works with any host.** Judgments come from OS facts (process tree, start times, environment,
+  sockets, pipes), never from one host app's internals.
+- **Agents can tell you what they are doing.** Turn on agent hooks in Settings and Claude Code
+  reports *waiting for input* and *needs you* (permission prompts). It never makes the agent wait.
+- **Featherweight and native.** It uses about 9 MB of memory and 1–3% of one core while idle. It is
+  written in Rust and calls each OS's own kernel interfaces.
+- **Data-driven.** Everything it knows about agents and hosts lives in
+  [`catalog.toml`](crates/core/catalog.toml). Your `rules.toml` extends it in the same format.
+
+## Screenshots
+
+**Sessions**: what each agent runs, grouped by host and tab, with memory, CPU and state.
+
+![Sessions view](docs/images/sessions.png)
+
+| Cleanup: candidates and their evidence | Ports: who listens where |
+|---|---|
+| ![Cleanup view](docs/images/cleanup.png) | ![Ports view](docs/images/ports.png) |
+| **Network: SSH connections and keys** | **Settings: cleanup, safety, agent hooks** |
+| ![Network view](docs/images/network.png) | ![Settings view](docs/images/settings.png) |
+
+The screenshots replay a made-up snapshot (`--replay`), so no real machine is shown. The UI is
+also available in Korean ([screenshot](docs/images/sessions-ko.png)).
 
 ## Installation
 
@@ -73,6 +96,7 @@ agentlens                          # interactive dashboard
 agentlens --report                 # print the current state once
 agentlens --dump-json > snap.json  # raw snapshot (secrets in command lines are masked)
 agentlens --report snap.json       # classify a saved snapshot
+agentlens --replay snap.json       # browse a saved snapshot in the dashboard, read-only
 ```
 
 | View | Shows | Keys |
@@ -82,7 +106,7 @@ agentlens --report snap.json       # classify a saved snapshot
 | 3 Network | SSH connections, keys, known hosts | `d` disconnect |
 | 4 Ports | Listening ports of sessions and leftovers | `k` end the owner, `a` all ports |
 | 5 Rules | How leftovers are found, catalog, rules file | `e` edit, `r` reload |
-| 6 Settings | Language, automatic cleanup, idle threshold, agent hooks | `←/→`/`enter` change |
+| 6 Settings | Language, automatic cleanup, idle threshold, leftovers to keep, agent hooks | `←/→`/`enter` change |
 
 Common keys: `1`–`6` or `tab` switch views, `s` sort (memory, CPU, idle), mouse wheel and
 clicks, `q` quit.
@@ -92,17 +116,21 @@ clicks, `q` quit.
 Every second agentlens lists all processes through each OS's own interface
 (`NtQuerySystemInformation` on Windows, `sysctl`/libproc on macOS, `/proc` on Linux) and builds a
 tree. Agents, hosts, shells and runtimes are recognized from the catalog. Each agent process
-without an agent ancestor roots a session; the nearest host above it and the host's tab variables
-place it in a tab.
+without an agent ancestor roots a session. The nearest host above it, and the host's tab
+variables, place it in a tab.
 
-A process counts as a leftover when its parent is gone (or its PID was reused, or on Unix it was
-adopted by launchd/systemd), and also when the session that started it has ended. A leftover is
-proposed for cleanup 15 seconds after its owner is seen gone. Leftovers with a visible window, or
-that a live session is still connected to, are kept unless you choose otherwise in Settings.
+A process counts as a leftover in either of these cases:
 
-Each candidate lists its evidence, for example
-`owner-gone, from session Claude Code @ Orca / my-repo, agent-infra, age 12m, listening :3050`.
-The full explanation is in the Rules view and in the [Korean documentation](README.ko.md).
+- **Its parent is gone.** This includes a parent PID that was reused, and on Unix a process adopted
+  by launchd or systemd.
+- **The session that started it has ended.** This is found three ways:
+  - *lineage*: the dashboard saw the process under that session;
+  - *birth record*: the process carries `AI_AGENT`, `CLAUDE_CODE_SESSION_ID` or `CLAUDE_PID`, which
+    agents set and children inherit;
+  - *closed channel* (Windows only): nobody can write to the process's input pipe any more.
+
+A leftover is proposed for cleanup 15 seconds after its owner is seen gone. The full rules are in
+the Rules view and the [Korean documentation](README.ko.md).
 
 ### Agent hooks
 
@@ -152,6 +180,10 @@ cargo clippy --workspace --all-targets
 
 Tests include a realistic made-up snapshot, macOS/Linux-shaped process trees, leftover detection
 over time, and live tests that start, find and end real processes on each OS.
+
+The screenshots and the animation are recorded with [VHS](https://github.com/charmbracelet/vhs)
+from the tapes in [`docs/demo`](docs/demo), which replay the made-up snapshot. Run
+`cargo build --release` first, then `vhs docs/demo/demo.tape`.
 
 Contributions are welcome. For a new agent or host, an entry in
 [`catalog.toml`](crates/core/catalog.toml) is usually all it takes. Please open an issue first for
