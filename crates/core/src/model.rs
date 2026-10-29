@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::catalog::{AgentDef, Catalog, HostDef, normalize};
-use crate::snapshot::{ProcInfo, Snapshot, TcpConn};
+use crate::snapshot::{Listener, ProcInfo, Snapshot, TcpConn};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HelperKind {
@@ -99,6 +99,7 @@ pub struct Model {
     pub groups: Vec<Group>,
     pub orphans: Vec<Orphan>,
     pub tcp: Vec<TcpConn>,
+    pub listening: Vec<Listener>,
     /// Pseudo-console glue processes, not worth a row of their own.
     pub pty_glue: HashSet<u32>,
 }
@@ -352,6 +353,7 @@ impl Model {
             groups: Vec::new(),
             orphans: Vec::new(),
             tcp: snapshot.tcp,
+            listening: snapshot.listening,
             pty_glue: HashSet::new(),
         };
         model.pty_glue = model

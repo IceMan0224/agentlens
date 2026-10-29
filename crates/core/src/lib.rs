@@ -9,4 +9,4 @@ pub mod rules;
 pub mod snapshot;
 mod sys;
 
-pub use snapshot::{Collector, ProcInfo, Snapshot, TcpConn};
+pub use snapshot::{Collector, Listener, ProcInfo, Snapshot, TcpConn};

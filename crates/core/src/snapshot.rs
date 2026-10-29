@@ -19,6 +19,9 @@ pub struct Snapshot {
     pub taken_at: u64,
     pub processes: Vec<ProcInfo>,
     pub tcp: Vec<TcpConn>,
+    /// Absent from snapshots saved before ports were collected.
+    #[serde(default)]
+    pub listening: Vec<Listener>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,7 +40,15 @@ pub struct ProcInfo {
     pub working_set: u64,
 }
 
-/// An established TCP connection; listening and closing sockets are not collected.
+/// A TCP socket waiting for connections.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Listener {
+    pub pid: u32,
+    pub addr: String,
+    pub port: u16,
+}
+
+/// An established TCP connection; closing sockets are not collected.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TcpConn {
     pub pid: u32,
@@ -66,6 +77,7 @@ pub struct Collector {
     last_tick: Option<Instant>,
     last_cwd_env_read: Option<Instant>,
     tcp: Vec<TcpConn>,
+    listening: Vec<Listener>,
     last_tcp: Option<Instant>,
 }
 
@@ -89,6 +101,7 @@ impl Collector {
             last_tick: None,
             last_cwd_env_read: None,
             tcp: Vec::new(),
+            listening: Vec::new(),
             last_tcp: None,
         }
     }
@@ -100,7 +113,8 @@ impl Collector {
         self.last_cwd_env_read = None;
     }
 
-    /// Makes the next snapshot list connections again instead of reusing the last list.
+    /// Makes the next snapshot list connections and listening sockets again instead of
+    /// reusing the last lists.
     pub fn refresh_network(&mut self) {
         self.last_tcp = None;
     }
@@ -166,19 +180,20 @@ impl Collector {
             })
             .collect();
 
+        self.read_sockets();
         Snapshot {
             taken_at: unix_now(),
             processes,
-            tcp: self.connections(),
+            tcp: self.tcp.clone(),
+            listening: self.listening.clone(),
         }
     }
 
-    fn connections(&mut self) -> Vec<TcpConn> {
+    fn read_sockets(&mut self) {
         if self.last_tcp.is_none_or(|t| t.elapsed() >= TCP_INTERVAL) {
-            self.tcp = tcp_connections();
+            (self.tcp, self.listening) = tcp_sockets();
             self.last_tcp = Some(Instant::now());
         }
-        self.tcp.clone()
     }
 
     fn read_pending_cwd_env(&mut self) {
@@ -324,26 +339,35 @@ fn redact_urls(text: &str) -> String {
     out
 }
 
-fn tcp_connections() -> Vec<TcpConn> {
+/// Established connections and listening sockets, from one listing.
+fn tcp_sockets() -> (Vec<TcpConn>, Vec<Listener>) {
     let Ok(sockets) = get_sockets_info(AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6, ProtocolFlags::TCP) else {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     };
-    sockets
-        .into_iter()
-        .filter_map(|s| match s.protocol_socket_info {
-            ProtocolSocketInfo::Tcp(tcp) if tcp.state == TcpState::Established => Some((tcp, s.associated_pids)),
-            _ => None,
-        })
-        .flat_map(|(tcp, pids)| {
-            pids.into_iter().map(move |pid| TcpConn {
-                pid,
-                local_addr: tcp.local_addr.to_string(),
-                local_port: tcp.local_port,
-                remote_addr: tcp.remote_addr.to_string(),
-                remote_port: tcp.remote_port,
-            })
-        })
-        .collect()
+    let (mut conns, mut listening) = (Vec::new(), Vec::new());
+    for s in sockets {
+        let ProtocolSocketInfo::Tcp(tcp) = s.protocol_socket_info else {
+            continue;
+        };
+        for pid in s.associated_pids {
+            match tcp.state {
+                TcpState::Established => conns.push(TcpConn {
+                    pid,
+                    local_addr: tcp.local_addr.to_string(),
+                    local_port: tcp.local_port,
+                    remote_addr: tcp.remote_addr.to_string(),
+                    remote_port: tcp.remote_port,
+                }),
+                TcpState::Listen => listening.push(Listener {
+                    pid,
+                    addr: tcp.local_addr.to_string(),
+                    port: tcp.local_port,
+                }),
+                _ => {}
+            }
+        }
+    }
+    (conns, listening)
 }
 
 fn unix_now() -> u64 {

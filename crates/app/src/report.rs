@@ -4,7 +4,7 @@ use std::fmt::Write;
 
 use agentlens_core::health::{Candidate, fmt_duration, short_cmd};
 use agentlens_core::model::{HelperKind, Model, Role};
-use agentlens_core::net::SshConn;
+use agentlens_core::net::{self, Port, PortOwner, SshConn};
 
 pub fn mb(bytes: u64) -> String {
     format!("{}MB", bytes >> 20)
@@ -119,6 +119,33 @@ pub fn render(model: &Model, candidates: &[Candidate], ssh: &[SshConn]) -> Strin
                 c.label,
                 mb(c.private_bytes),
                 c.reasons.join(", ")
+            );
+        }
+    }
+    let ports: Vec<Port> = net::ports(model).into_iter().filter(|p| p.agent_related()).collect();
+    if !ports.is_empty() {
+        let _ = writeln!(out, "Ports");
+        for p in ports {
+            let owner = match p.owner {
+                PortOwner::Session(g, t, s) => {
+                    let tab = &model.groups[g].tabs[t];
+                    format!(
+                        "{} @ {} / {}",
+                        tab.sessions[s].agent_name, model.groups[g].name, tab.label
+                    )
+                }
+                PortOwner::Orphan(root) => format!("orphan {root}"),
+                PortOwner::Other => String::new(),
+            };
+            let _ = writeln!(
+                out,
+                "  :{} {} {} pid {} clients {}  {owner}{}",
+                p.port,
+                if p.exposed { "exposed" } else { "local" },
+                p.process,
+                p.pid,
+                p.clients,
+                if p.agent_internal { " (agent's own)" } else { "" }
             );
         }
     }

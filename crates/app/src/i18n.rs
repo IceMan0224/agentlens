@@ -28,6 +28,7 @@ const WHOLE: &[(&str, &str)] = &[
     ("adopted-by-init", "init에 입양"),
     ("started-by-agent", "에이전트가 실행"),
     ("not-agent", "에이전트 아님"),
+    ("exposed", "외부 노출"),
 ];
 
 /// Evidence with a value after the word.
@@ -36,6 +37,7 @@ const PREFIX: &[(&str, &str)] = &[
     ("idle ", "유휴 "),
     ("from tab ", "출처 탭 "),
     ("pids ", "PID "),
+    ("listening ", "포트 열림 "),
 ];
 
 /// Refusals: `<name> (<pid>)` followed by the reason.

@@ -10,7 +10,7 @@ use agentlens_core::catalog::Catalog;
 use agentlens_core::health::{Candidate, CandidateKind, History, candidates, fmt_duration, short_cmd};
 use agentlens_core::keys::{self, KeyInfo, SshInventory};
 use agentlens_core::model::{Group, GroupKind, Model, Role, short_path};
-use agentlens_core::net::{self, SshConn, SshHost};
+use agentlens_core::net::{self, Port, PortOwner, SshConn, SshHost};
 use agentlens_core::rules::{Language, Rules, rules_path};
 use agentlens_core::{Collector, Snapshot};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
@@ -23,10 +23,12 @@ use ratatui::{DefaultTerminal, Frame};
 use crate::i18n::{phrase, t, tf};
 use crate::report::{mb, role_label};
 
-const VIEWS: [View; 5] = [
+/// In the order of `View`'s variants: a view's index is `view as usize`.
+const VIEWS: [View; 6] = [
     View::Sessions,
     View::Cleanup,
     View::Network,
+    View::Ports,
     View::Rules,
     View::Settings,
 ];
@@ -43,6 +45,7 @@ enum View {
     Sessions,
     Cleanup,
     Network,
+    Ports,
     Rules,
     Settings,
 }
@@ -53,6 +56,7 @@ impl View {
             View::Sessions => t(lang, "Sessions", "세션"),
             View::Cleanup => t(lang, "Cleanup", "정리"),
             View::Network => t(lang, "Network", "네트워크"),
+            View::Ports => t(lang, "Ports", "포트"),
             View::Rules => t(lang, "Rules", "규칙"),
             View::Settings => t(lang, "Settings", "설정"),
         }
@@ -123,13 +127,16 @@ pub struct App {
     history: History,
     candidates: Vec<Candidate>,
     ssh: Vec<SshConn>,
+    ports: Vec<Port>,
+    /// Ports shows every listening port, not only agents' and orphans'.
+    all_ports: bool,
     ssh_config: Vec<SshHost>,
     /// Read again whenever Network is opened.
     ssh_keys: SshInventory,
     view: View,
     sort: Sort,
-    selected: [usize; 5],
-    offsets: [usize; 5],
+    selected: [usize; 6],
+    offsets: [usize; 6],
     flipped: HashSet<String>,
     marked: HashSet<u32>,
     /// Candidate root -> when it was first seen.
@@ -155,8 +162,8 @@ impl App {
         let catalog = Catalog::builtin().with_rules(&rules).with_installed(&installed);
         let status = t(
             rules.language,
-            "q quit · ←→ fold · k end tree · enter details · s sort · 1-5 views",
-            "q 종료 · ←→ 접기 · k 트리 종료 · enter 상세 · s 정렬 · 1-5 화면",
+            "q quit · ←→ fold · k end tree · enter details · s sort · 1-6 views",
+            "q 종료 · ←→ 접기 · k 트리 종료 · enter 상세 · s 정렬 · 1-6 화면",
         )
         .into();
         let ssh_config = net::load_ssh_config();
@@ -169,12 +176,14 @@ impl App {
             history: History::default(),
             candidates: Vec::new(),
             ssh: Vec::new(),
+            ports: Vec::new(),
+            all_ports: false,
             ssh_keys: keys::load_default(&ssh_config),
             ssh_config,
             view: View::Sessions,
             sort: Sort::Memory,
-            selected: [0; 5],
-            offsets: [0; 5],
+            selected: [0; 6],
+            offsets: [0; 6],
             flipped: HashSet::new(),
             marked: HashSet::new(),
             seen_candidates: HashMap::new(),
@@ -200,8 +209,14 @@ impl App {
         let ssh_key = |c: &SshConn| (c.pid, c.remote.clone(), c.local.clone());
         let was_candidate = self.candidates.get(self.selected[1]).map(cleanup_key);
         let was_ssh = self.ssh.get(self.selected[2]).map(ssh_key);
+        let port_key = |p: &Port| (p.pid, p.port);
+        let was_port = self.visible_ports().get(self.selected[3]).map(|p| port_key(p));
         self.candidates = candidates(&model, &self.history, self.rules.idle_minutes);
         self.ssh = net::ssh_connections(&model, &self.catalog, &self.ssh_config);
+        self.ports = net::ports(&model);
+        if let Some(i) = was_port.and_then(|k| self.visible_ports().iter().position(|p| port_key(p) == k)) {
+            self.selected[3] = i;
+        }
         if let Some(i) = was_candidate.and_then(|k| self.candidates.iter().position(|c| cleanup_key(c) == k)) {
             self.selected[1] = i;
         }
@@ -473,6 +488,71 @@ impl App {
             .collect()
     }
 
+    fn visible_ports(&self) -> Vec<&Port> {
+        self.ports
+            .iter()
+            .filter(|p| self.all_ports || p.agent_related())
+            .collect()
+    }
+
+    fn port_rows(&self) -> Vec<Row<'static>> {
+        let lang = self.lang();
+        let Some(m) = self.model.as_ref() else {
+            return Vec::new();
+        };
+        self.visible_ports()
+            .into_iter()
+            .map(|p| {
+                let mut owner = match p.owner {
+                    PortOwner::Session(g, t, s) => {
+                        let tab = &m.groups[g].tabs[t];
+                        format!("{} @ {} / {}", tab.sessions[s].agent_name, m.groups[g].name, tab.label)
+                    }
+                    PortOwner::Orphan(root) => {
+                        let name = m.procs.get(&root).map(|r| r.name.as_str()).unwrap_or("?");
+                        match m
+                            .orphans
+                            .iter()
+                            .find(|o| o.pid == root)
+                            .and_then(|o| o.origin.as_deref())
+                        {
+                            Some(tab) => tf!(
+                                lang,
+                                "orphan {name} {root} · from tab {tab}",
+                                "고아 {name} {root} · 출처 탭 {tab}"
+                            ),
+                            None => tf!(lang, "orphan {name} {root}", "고아 {name} {root}"),
+                        }
+                    }
+                    PortOwner::Other => role_label(m, p.pid).to_string(),
+                };
+                if p.agent_internal {
+                    owner.push_str(t(lang, " · agent's own server", " · 에이전트 자체 서버"));
+                }
+                let bind = if p.exposed {
+                    t(lang, "exposed", "외부 노출")
+                } else {
+                    t(lang, "local", "로컬")
+                };
+                let style = match p.owner {
+                    PortOwner::Orphan(_) => Style::new().fg(Color::Yellow),
+                    _ if p.agent_internal => Style::new().dim(),
+                    _ => Style::new(),
+                };
+                let tree = m.subtree(p.pid);
+                Row::new(vec![
+                    Cell::from(p.port.to_string()),
+                    Cell::from(format!("{bind} ({})", p.addrs.join(", "))),
+                    Cell::from(format!("{} {}", p.process, p.pid)),
+                    Cell::from(p.clients.to_string()),
+                    Cell::from(mb(m.private_bytes(&tree))),
+                    Cell::from(owner),
+                ])
+                .style(style)
+            })
+            .collect()
+    }
+
     fn settings_rows(&self) -> Vec<Row<'static>> {
         let lang = self.lang();
         let r = &self.rules;
@@ -538,6 +618,7 @@ impl App {
             View::Sessions => self.items.len(),
             View::Cleanup => self.candidates.len(),
             View::Network => self.ssh.len(),
+            View::Ports => self.visible_ports().len(),
             View::Rules => self.rules_lines().len(),
             View::Settings => SETTINGS.len(),
         }
@@ -727,6 +808,38 @@ impl App {
                 self.network_rows(),
                 t(lang, "SSH connections · d disconnect", "SSH 연결 · d 연결 끊기"),
             ),
+            View::Ports => (
+                vec![
+                    t(lang, "Port", "포트"),
+                    t(lang, "Bound to", "바인딩"),
+                    t(lang, "Process", "프로세스"),
+                    t(lang, "Clients", "접속"),
+                    t(lang, "Private", "메모리"),
+                    t(lang, "Owner", "주인"),
+                ],
+                vec![
+                    Constraint::Length(6),
+                    Constraint::Length(26),
+                    Constraint::Length(20),
+                    Constraint::Length(5),
+                    Constraint::Length(9),
+                    Constraint::Fill(1),
+                ],
+                self.port_rows(),
+                if self.all_ports {
+                    t(
+                        lang,
+                        "Listening ports: all · k/x/del end the owner · a agents' only",
+                        "열린 포트: 전체 · k/x/del 주인 종료 · a 에이전트 관련만",
+                    )
+                } else {
+                    t(
+                        lang,
+                        "Listening ports of agents and orphans (yellow) · k/x/del end the owner · a all",
+                        "에이전트·고아(노란색)가 연 포트 · k/x/del 주인 종료 · a 전체 보기",
+                    )
+                },
+            ),
             View::Settings => (
                 vec![
                     t(lang, "Setting", "설정"),
@@ -761,6 +874,11 @@ impl App {
             let msg = match self.view {
                 View::Cleanup => t(lang, "nothing to clean up", "정리할 항목 없음"),
                 View::Network => t(lang, "no SSH connections", "SSH 연결 없음"),
+                View::Ports => t(
+                    lang,
+                    "no listening ports from agents or orphans (a: show all)",
+                    "에이전트나 고아가 연 포트 없음 (a: 전체 보기)",
+                ),
                 _ => t(lang, "no agent sessions found", "에이전트 세션 없음"),
             };
             let inner = Rect {
@@ -830,6 +948,18 @@ impl App {
             .collect();
         let (n, list) = (conns.len(), conns.join(", "));
         lines.push(Line::from(tf!(lang, "connections ({n}): {list}", "연결 ({n}): {list}")));
+        let mut ports: Vec<String> = m
+            .listening
+            .iter()
+            .filter(|l| tree.contains(&l.pid))
+            .map(|l| net::endpoint(&l.addr, l.port))
+            .collect();
+        ports.sort();
+        ports.dedup();
+        if !ports.is_empty() {
+            let list = ports.join(", ");
+            lines.push(Line::from(tf!(lang, "listening: {list}", "열린 포트: {list}")));
+        }
         Paragraph::new(lines).wrap(Wrap { trim: false }).block(block)
     }
 
@@ -1188,7 +1318,7 @@ impl App {
         match k.code {
             KeyCode::Char('q') | KeyCode::Esc => self.quit = true,
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
-            KeyCode::Char(d @ '1'..='5') => self.set_view(d as usize - '1' as usize),
+            KeyCode::Char(d @ '1'..='6') => self.set_view(d as usize - '1' as usize),
             KeyCode::Tab => self.set_view((self.view_index() + 1) % VIEWS.len()),
             KeyCode::BackTab => self.set_view((self.view_index() + VIEWS.len() - 1) % VIEWS.len()),
             KeyCode::Down => self.move_by(1),
@@ -1220,6 +1350,10 @@ impl App {
             KeyCode::Char('k') | KeyCode::Char('x') | KeyCode::Delete if self.view == View::Sessions => {
                 self.ask_end_selected()
             }
+            KeyCode::Char('k') | KeyCode::Char('x') | KeyCode::Delete if self.view == View::Ports => {
+                self.ask_end_port()
+            }
+            KeyCode::Char('a') if self.view == View::Ports => self.all_ports = !self.all_ports,
             KeyCode::Left if self.view == View::Settings => self.change_setting(-1),
             KeyCode::Right | KeyCode::Enter | KeyCode::Char(' ') if self.view == View::Settings => {
                 self.change_setting(1)
@@ -1335,6 +1469,42 @@ impl App {
             "정리 대상 {n}개와 하위 프로세스를 종료할까요?"
         );
         self.ask(title, roots);
+    }
+
+    /// Ends the whole orphan tree holding the port, or else the listening process and its
+    /// children: never the agent session around it.
+    fn ask_end_port(&mut self) {
+        let lang = self.lang();
+        let Some(p) = self.visible_ports().get(self.selected[3]).map(|p| (*p).clone()) else {
+            return;
+        };
+        let Some(m) = self.model.as_ref() else { return };
+        let port = p.port;
+        let (title, root) = match p.owner {
+            PortOwner::Orphan(root) => {
+                let name = m.procs.get(&root).map(|r| r.name.clone()).unwrap_or_default();
+                (
+                    tf!(
+                        lang,
+                        "End the orphan tree {name} ({root}) holding :{port}?",
+                        ":{port} 포트를 연 고아 트리 {name} ({root})를 종료할까요?"
+                    ),
+                    root,
+                )
+            }
+            _ => {
+                let (name, pid) = (&p.process, p.pid);
+                (
+                    tf!(
+                        lang,
+                        "End {name} ({pid}) listening on :{port}, and everything under it?",
+                        ":{port} 포트를 연 {name} ({pid})와 그 하위 프로세스를 종료할까요?"
+                    ),
+                    pid,
+                )
+            }
+        };
+        self.ask(title, vec![root]);
     }
 
     fn ask_disconnect(&mut self) {
@@ -1458,7 +1628,7 @@ impl App {
 
     /// Changes the selected setting, applies it and saves it to the rules file.
     fn change_setting(&mut self, step: isize) {
-        let Some(setting) = SETTINGS.get(self.selected[4]) else {
+        let Some(setting) = SETTINGS.get(self.selected[View::Settings as usize]) else {
             return;
         };
         let r = &mut self.rules;
@@ -1775,10 +1945,12 @@ mod tests {
         key(&mut app, KeyCode::Char('3'));
         assert!(screen(&mut app).contains("no SSH connections"));
         key(&mut app, KeyCode::Char('4'));
+        assert!(screen(&mut app).contains("no listening ports from agents or orphans"));
+        key(&mut app, KeyCode::Char('5'));
         let s = screen(&mut app);
         assert!(s.contains("agents in catalog: 45"), "{s}");
         assert!(s.contains("How orphans are found"));
-        key(&mut app, KeyCode::Char('5'));
+        key(&mut app, KeyCode::Char('6'));
         let s = screen(&mut app);
         assert!(s.contains("automatic cleanup is off"), "{s}");
     }
@@ -1806,7 +1978,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
         terminal.draw(|f| app.draw(f)).unwrap();
         let buf = terminal.backend().buffer();
-        let x = (0..buf.area.width).find(|x| buf[(*x, 0)].symbol() == "5").unwrap();
+        let x = (0..buf.area.width).find(|x| buf[(*x, 0)].symbol() == "6").unwrap();
         let click = |x| {
             Event::Mouse(crossterm::event::MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
@@ -1817,11 +1989,77 @@ mod tests {
         };
         app.on_event(click(x + 3));
         assert!(app.view == View::Settings);
-        let x = (0..buf.area.width).find(|x| buf[(*x, 0)].symbol() == "4").unwrap();
+        let x = (0..buf.area.width).find(|x| buf[(*x, 0)].symbol() == "5").unwrap();
         app.on_event(click(x));
         assert!(app.view == View::Rules);
         let s = screen(&mut app);
         assert!(s.contains('판') && s.contains('정'), "{s}");
+    }
+
+    #[test]
+    fn ports_name_their_owner_and_ending_one_spares_the_session() {
+        use agentlens_core::Listener;
+        let mut snapshot: Snapshot =
+            serde_json::from_str(include_str!("../../core/tests/fixtures/orca_2026-10-29.json")).unwrap();
+        let mut app = App::new(Rules::default(), Vec::new());
+        app.apply(snapshot.clone());
+        let m = app.model.as_ref().unwrap();
+        let orphan = m.orphans[0].pid;
+        let orphan_child = *m.subtree(orphan).last().unwrap();
+        let server = m.subtree(33472)[1];
+        let system = m
+            .procs
+            .keys()
+            .copied()
+            .find(|p| {
+                m.subtree(*p).len() == 1
+                    && m.locate(*p).is_none()
+                    && !m.orphans.iter().any(|o| m.is_ancestor_or_self(o.pid, *p))
+            })
+            .unwrap();
+        let listen = |pid, addr: &str, port| Listener {
+            pid,
+            addr: addr.into(),
+            port,
+        };
+        snapshot.listening = vec![
+            listen(orphan_child, "0.0.0.0", 3050),
+            listen(orphan_child, "::", 3050),
+            listen(server, "127.0.0.1", 3150),
+            listen(33472, "127.0.0.1", 50001),
+            listen(system, "0.0.0.0", 135),
+        ];
+        app.apply(snapshot);
+
+        let ports: Vec<(u16, bool)> = app.visible_ports().iter().map(|p| (p.port, p.exposed)).collect();
+        assert_eq!(
+            ports,
+            [(3050, true), (3150, false), (50001, false)],
+            "orphans first, system hidden"
+        );
+        assert_eq!(app.visible_ports()[0].addrs, ["0.0.0.0", "::"], "one row per port");
+        assert!(app.visible_ports()[2].agent_internal);
+        let reasons = &app.candidates.iter().find(|c| c.root_pid == orphan).unwrap().reasons;
+        assert!(reasons.contains(&"listening :3050".to_string()) && reasons.contains(&"exposed".to_string()));
+
+        app.view = View::Ports;
+        let s = screen(&mut app);
+        assert!(
+            s.contains("3050") && s.contains("exposed (0.0.0.0, ::)") && s.contains("orphan"),
+            "{s}"
+        );
+        key(&mut app, KeyCode::Char('a'));
+        assert!(app.visible_ports().iter().any(|p| p.port == 135));
+        key(&mut app, KeyCode::Char('a'));
+
+        // The orphan: its whole tree. A session's server: that process, not the session.
+        key(&mut app, KeyCode::Char('x'));
+        assert_eq!(app.confirm.take().unwrap().plan.targets[0].pid, orphan);
+        app.selected[3] = 1;
+        key(&mut app, KeyCode::Char('x'));
+        let plan = app.confirm.take().unwrap().plan;
+        assert_eq!(plan.targets[0].pid, server);
+        assert!(plan.targets.iter().all(|t| t.pid != 33472));
     }
 
     #[test]

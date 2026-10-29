@@ -7,6 +7,9 @@ use crate::model::{HelperKind, Model, OrphanReason, Role, short_path};
 /// CPU% (summed over cores) above which a process counts as active in a sample.
 const ACTIVE_CPU: f32 = 1.0;
 
+/// Start of the IANA dynamic port range.
+const DYNAMIC_PORTS: u16 = 49152;
+
 /// Processes are keyed by (pid, start time) so a reused PID starts a fresh history.
 #[derive(Debug, Default)]
 pub struct History {
@@ -107,6 +110,25 @@ pub fn candidates(model: &Model, history: &History, idle_minutes: u64) -> Vec<Ca
         }
         if let Some(tab) = &orphan.origin {
             reasons.push(format!("from tab {tab}"));
+        }
+        let mut ports: Vec<&crate::snapshot::Listener> =
+            model.listening.iter().filter(|l| tree.contains(&l.pid)).collect();
+        ports.sort_by_key(|l| l.port);
+        if !ports.is_empty() {
+            // Ports in the dynamic range are usually picked by the OS for a program's own
+            // workers; name them only when there is nothing else.
+            let named: Vec<&&crate::snapshot::Listener> = ports.iter().filter(|l| l.port < DYNAMIC_PORTS).collect();
+            let shown = if named.is_empty() {
+                ports.iter().collect()
+            } else {
+                named
+            };
+            let mut list: Vec<String> = shown.iter().map(|l| format!(":{}", l.port)).collect();
+            list.dedup();
+            reasons.push(format!("listening {}", list.join(" ")));
+            if ports.iter().any(|l| crate::net::is_exposed(&l.addr)) {
+                reasons.push("exposed".into());
+            }
         }
         out.push(Candidate {
             kind: CandidateKind::Orphan,

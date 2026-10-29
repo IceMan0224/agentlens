@@ -1,7 +1,9 @@
-//! SSH sessions and per-process connections.
+//! SSH sessions, listening ports and per-process connections.
+
+use std::net::IpAddr;
 
 use crate::catalog::Catalog;
-use crate::model::{Model, stem};
+use crate::model::{Model, Role, stem};
 use crate::snapshot::TcpConn;
 
 /// ssh options that take a value (`-p 22` or `-p22`).
@@ -243,6 +245,103 @@ pub fn ssh_connections(model: &Model, catalog: &Catalog, config: &[SshHost]) -> 
     out
 }
 
+/// Who a listening port belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PortOwner {
+    /// Inside an agent session: (group, tab, session) indices into `Model::groups`.
+    Session(usize, usize, usize),
+    /// Inside an orphan tree, by its root.
+    Orphan(u32),
+    Other,
+}
+
+#[derive(Debug, Clone)]
+pub struct Port {
+    pub port: u16,
+    pub pid: u32,
+    pub process: String,
+    /// One per address family or interface it is bound to.
+    pub addrs: Vec<String>,
+    /// Reachable from other machines: bound to every interface or to a non-loopback address.
+    pub exposed: bool,
+    /// Connections accepted on it right now.
+    pub clients: usize,
+    pub owner: PortOwner,
+    /// The agent itself listens (its own local server), not a program it started.
+    pub agent_internal: bool,
+}
+
+impl Port {
+    /// Belongs to an agent session or an orphan, rather than to the rest of the system.
+    pub fn agent_related(&self) -> bool {
+        self.owner != PortOwner::Other
+    }
+}
+
+pub fn is_exposed(addr: &str) -> bool {
+    addr.parse::<IpAddr>().is_ok_and(|ip| !ip.is_loopback())
+}
+
+/// Listening ports, one row per (process, port), orphans first, then exposed ones.
+pub fn ports(model: &Model) -> Vec<Port> {
+    let mut out: Vec<Port> = Vec::new();
+    for l in &model.listening {
+        let Some(p) = model.procs.get(&l.pid) else { continue };
+        if let Some(row) = out.iter_mut().find(|r| r.pid == l.pid && r.port == l.port) {
+            if !row.addrs.contains(&l.addr) {
+                row.addrs.push(l.addr.clone());
+            }
+            row.exposed |= is_exposed(&l.addr);
+            continue;
+        }
+        let owner = match model.locate(l.pid) {
+            Some((g, t, s)) => PortOwner::Session(g, t, s),
+            None => model
+                .orphans
+                .iter()
+                .find(|o| model.is_ancestor_or_self(o.pid, l.pid))
+                .map_or(PortOwner::Other, |o| PortOwner::Orphan(o.pid)),
+        };
+        // Clients from inside the same tree are its own workers talking to each other.
+        let tree = model.subtree(match owner {
+            PortOwner::Session(g, t, s) => model.groups[g].tabs[t].sessions[s].root_pid,
+            PortOwner::Orphan(root) => root,
+            PortOwner::Other => l.pid,
+        });
+        let internal = |c: &TcpConn| {
+            model.tcp.iter().any(|peer| {
+                peer.local_port == c.remote_port && peer.local_addr == c.remote_addr && tree.contains(&peer.pid)
+            })
+        };
+        out.push(Port {
+            port: l.port,
+            pid: l.pid,
+            process: p.name.clone(),
+            addrs: vec![l.addr.clone()],
+            exposed: is_exposed(&l.addr),
+            clients: model
+                .tcp
+                .iter()
+                .filter(|c| c.pid == l.pid && c.local_port == l.port && !internal(c))
+                .count(),
+            owner,
+            agent_internal: matches!(model.roles.get(&l.pid), Some(Role::Agent(_))),
+        });
+    }
+    for row in &mut out {
+        row.agent_internal &= !row.exposed;
+    }
+    out.sort_by_key(|r| {
+        (
+            !matches!(r.owner, PortOwner::Orphan(_)),
+            !r.exposed,
+            r.agent_internal,
+            r.port,
+        )
+    });
+    out
+}
+
 pub fn connections_of<'a>(model: &'a Model, pids: &'a [u32]) -> impl Iterator<Item = &'a TcpConn> + 'a {
     model.tcp.iter().filter(move |c| pids.contains(&c.pid))
 }
@@ -336,6 +435,7 @@ mod tests {
                 taken_at: 2,
                 processes: vec![proc(10, "node", "node cli.js"), proc(11, "ssh", "ssh gh")],
                 tcp: vec![conn(10), conn(11)],
+                listening: Vec::new(),
             },
             &catalog,
         );
