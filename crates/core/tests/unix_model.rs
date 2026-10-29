@@ -282,3 +282,17 @@ fn disconnect_ends_privsep_sshd_sessions_but_no_other_host() {
     let refused = refusals(&disconnect_plan(&m, &catalog, 400), &m, &catalog, 999);
     assert!(!refused.is_empty(), "a host is never ended to drop a connection");
 }
+
+#[test]
+fn newer_wsl_session_leaders_are_a_wsl_host() {
+    // Newer WSL: a `SessionLeader` per session and a `Relay(N)` per shell, both running /init.
+    let m = build(vec![
+        proc(1, 0, "/init", &["/init"]),
+        named(9, 1, "SessionLeader", "/init", &["/init"]),
+        named(10, 9, "Relay(11)", "/init", &["/init"]),
+        proc(11, 10, "/usr/bin/bash", &["-bash"]),
+        proc(12, 11, "/home/me/.local/bin/claude", &["claude"]),
+    ]);
+    assert!(m.orphans.is_empty(), "{:?}", m.orphans);
+    assert_eq!(group(&m, "wsl").tabs[0].sessions[0].root_pid, 12);
+}

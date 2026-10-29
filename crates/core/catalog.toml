@@ -476,6 +476,13 @@ id = "linux-terminal"
 name = "Terminal"
 exe = ["gnome-terminal-server", "konsole", "xfce4-terminal", "tilix", "terminator", "xterm"]
 
+# Newer WSL starts each session under a `SessionLeader`, with a `Relay(N)` per shell (older
+# WSL names them `init`, which is a system process). The terminal itself runs on Windows.
+[[hosts]]
+id = "wsl"
+name = "WSL"
+exe = ["sessionleader"]
+
 # Remote logins and multiplexers: each login or pane is a tab.
 [[hosts]]
 id = "ssh"
