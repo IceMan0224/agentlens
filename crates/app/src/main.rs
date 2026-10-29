@@ -12,7 +12,7 @@ use agentlens_core::rules::Rules;
 use agentlens_core::stdio::StdioProbe;
 use agentlens_core::{Collector, Snapshot, hooks, install, net};
 
-const USAGE: &str = "usage: agentlens [--report [snapshot.json] | --dump-json]";
+const USAGE: &str = "usage: agentlens [--report [snapshot.json] | --dump-json | --replay snapshot.json]";
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -27,6 +27,12 @@ fn main() -> anyhow::Result<()> {
     let catalog = Catalog::builtin().with_rules(&rules).with_installed(&installed);
     match args.first().map(String::as_str) {
         None => tui::run(rules, installed),
+        Some("--replay") => {
+            let path = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("--replay needs a snapshot file\n{USAGE}"))?;
+            tui::run_replay(rules, serde_json::from_str(&std::fs::read_to_string(path)?)?)
+        }
         Some("--dump-json") => {
             let snapshot = live_snapshot(&catalog)?;
             serde_json::to_writer_pretty(std::io::stdout().lock(), &snapshot)?;
