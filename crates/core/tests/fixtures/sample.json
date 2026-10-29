@@ -1841,6 +1841,39 @@
    "working_set": 251658240
   },
   {
+   "pid": 25050,
+   "ppid": 25048,
+   "name": "ssh.exe",
+   "exe": "C:\\Windows\\System32\\OpenSSH\\ssh.exe",
+   "cmd": [
+    "ssh",
+    "deploy@staging.example.com"
+   ],
+   "cwd": null,
+   "env": [
+    [
+     "ORCA_TAB_ID",
+     "31ef6ed2-1b3f-5582-b8e7-e2de957730ac"
+    ],
+    [
+     "ORCA_WORKTREE_ID",
+     "65b03d51-1dbf-57ad-8bf3-621d89231255::C:\\work\\acme\\infra"
+    ],
+    [
+     "ORCA_TERMINAL_HANDLE",
+     "term_c145e71c-520c-5614-938f-4562aeffb5ef"
+    ],
+    [
+     "ORCA_AGENT_LAUNCH",
+     "2cc34209-5f77-51fd-95f8-2542ea4e48ad"
+    ]
+   ],
+   "start_time": 1799999100,
+   "cpu": 0.0,
+   "private_bytes": 9437184,
+   "working_set": 15099494
+  },
+  {
    "pid": 25049,
    "ppid": 25048,
    "name": "node_repl.exe",
@@ -2321,6 +2354,35 @@
    "local_port": 50201,
    "remote_addr": "127.0.0.1",
    "remote_port": 50200
+  },
+  {
+   "pid": 25050,
+   "local_addr": "192.168.1.20",
+   "local_port": 50300,
+   "remote_addr": "198.51.100.7",
+   "remote_port": 22
+  }
+ ],
+ "listening": [
+  {
+   "pid": 35728,
+   "addr": "0.0.0.0",
+   "port": 5173
+  },
+  {
+   "pid": 35728,
+   "addr": "::",
+   "port": 5173
+  },
+  {
+   "pid": 33474,
+   "addr": "127.0.0.1",
+   "port": 4173
+  },
+  {
+   "pid": 41248,
+   "addr": "127.0.0.1",
+   "port": 50051
   }
  ]
 }

@@ -1,13 +1,65 @@
-# agentlens
+<h1 align="center">agentlens</h1>
 
-[English](README.md) | **한국어**
+<p align="center">
+  <b>코딩 에이전트가 띄운 모든 프로세스를 보고, 남겨진 것을 안전하게 정리합니다.</b>
+</p>
 
-Orca, Cursor, VS Code, ego 등에서 띄운 코딩 에이전트(claude, codex, opencode, zcode …)의
-프로세스를 **호스트 → 탭 → 세션 → 하위 프로세스**로 묶어 보여주고, 남은 고아 프로세스와
-SSH 연결을 직접 정리할 수 있게 해 주는 터미널 대시보드입니다. Windows, macOS, Linux에서 동작합니다.
+<p align="center"><a href="README.md">English</a> | <b>한국어</b></p>
 
-작업 관리자에서는 `node.exe` 17개, `node_repl.exe` 12개가 뒤섞여 보이지만, agentlens에서는
-"Orca / acme/web-app 탭 / Claude Code 세션 / 그 아래 bash·MCP·REPL" 형태로 보입니다.
+<p align="center">
+  <img src="docs/images/demo.gif" alt="agentlens: 호스트·탭별 에이전트 세션, 끝난 세션이 남긴 MCP 서버와 판정 근거, 포트와 SSH 연결" width="100%">
+</p>
+
+## 왜 agentlens인가
+
+코딩 에이전트는 MCP 서버, REPL, 언어 서버, dev 서버, 셸 같은 프로세스를 많이 띄웁니다. 그런데
+
+- **세션이 끝나도 남습니다.** 터미널 탭을 닫거나 에이전트가 죽어도 MCP 서버와 dev 서버, 셸은 계속 돕니다.
+  하나에 수백 MB씩 쓰는 것도 있고, 하루면 쌓입니다.
+- **다 똑같아 보입니다.** 작업 관리자나 `htop`에는 `node.exe` 17개, `node_repl.exe` 12개가 뒤섞여 있습니다.
+  어느 것이 지금 쓰는 세션 것인지 알 수 없습니다.
+- **추측으로 끄면 위험합니다.** 엉뚱한 `node`를 끄면 작업 중인 세션이 죽습니다.
+
+agentlens는 모든 프로세스에 대해 **누구의 것인가, 그 주인이 아직 살아 있는가**를 답합니다.
+프로세스를 *호스트 → 탭 → 에이전트 세션*으로 묶고, 끝난 세션이 남긴 것을 이름이 아니라 근거로 찾아,
+안전할 때만 정리합니다.
+
+## 특장점
+
+- **누구의 프로세스인지 압니다.** 에이전트 45종(Claude Code, Codex, opencode, Gemini CLI, Copilot CLI, Aider,
+  Goose …)에 대해 호스트 → 탭 → 세션 → 프로세스 트리를 만듭니다. 지원 호스트는 Orca, VS Code, Cursor,
+  JetBrains, Windows Terminal, iTerm2, Ghostty, tmux, SSH 로그인, WSL 등입니다.
+- **이름이 아니라 근거로 잔여 프로세스를 찾습니다.** 세 가지 근거를 씁니다.
+  - 계보: 세션 아래에서 본 프로세스를 기억합니다.
+  - 출생 기록: 에이전트가 자식에 남기는 세션과 PID를 읽습니다.
+  - 통신 채널 끊김(Windows): stdio 서버에 아직 말을 걸 수 있는지 확인합니다.
+
+  후보마다 `owner-gone, from session Claude Code @ Orca / acme/web-app, agent-infra`처럼 근거를 보여 줍니다.
+- **안전이 기본입니다.**
+  - 호스트, 시스템 프로세스, 자기 터미널, `protect` 규칙에 걸린 것은 끝내지 않습니다.
+  - 부모부터 끝내고, 끝내기 직전에 PID와 시작 시각을 다시 확인합니다.
+  - 확인은 `y`로만 받습니다.
+  - 창이 있는 앱과 다른 세션이 쓰는 프로세스는 설정하지 않는 한 남겨 둡니다.
+- **어떤 호스트에서든 동작합니다.** 판정은 OS의 사실(프로세스 트리, 시작 시각, 환경변수, 소켓, 파이프)로만
+  하고, 특정 호스트 앱의 내부 정보에 기대지 않습니다.
+- **에이전트가 직접 상태를 알려 줍니다.** 설정에서 에이전트 훅을 켜면 Claude Code가 *입력 대기*,
+  *확인 필요*(권한 요청 등)를 알려 줍니다. 에이전트를 기다리게 하지 않습니다.
+- **가볍고 네이티브입니다.** 대기 중 메모리 약 9MB, 한 코어의 1~3%를 씁니다. Rust로 작성했고 OS마다
+  커널 인터페이스를 직접 씁니다.
+- **지식은 데이터로 둡니다.** 에이전트와 호스트에 대한 지식은 [`catalog.toml`](crates/core/catalog.toml)에 있고,
+  `rules.toml`로 같은 형식으로 확장합니다.
+
+## 스크린샷
+
+![세션 화면(한국어)](docs/images/sessions-ko.png)
+
+| 정리: 후보와 판정 근거 | 포트: 누가 어디서 대기 중인지 |
+|---|---|
+| ![정리 화면](docs/images/cleanup.png) | ![포트 화면](docs/images/ports.png) |
+| **네트워크: SSH 연결과 키** | **설정: 정리, 안전, 에이전트 훅** |
+| ![네트워크 화면](docs/images/network.png) | ![설정 화면](docs/images/settings.png) |
+
+화면은 지어낸 스냅샷을 재생(`--replay`)해 찍었으므로 실제 PC의 정보는 없습니다.
 
 ## 빌드와 실행
 
@@ -17,7 +69,11 @@ cargo build --release
 .\target\release\agentlens.exe --report   # 현재 상태를 텍스트로 한 번 출력
 .\target\release\agentlens.exe --dump-json > snap.json   # 원시 스냅샷 (디버깅/테스트용)
 .\target\release\agentlens.exe --report snap.json        # 저장한 스냅샷으로 분류 결과 보기
+.\target\release\agentlens.exe --replay snap.json        # 저장한 스냅샷을 대시보드에서 읽기 전용으로 보기
 ```
+
+`--replay`는 스냅샷의 PID가 이 PC의 다른 프로세스일 수 있으므로 아무것도 끝내지 않습니다(확인해도 읽기 전용 안내).
+자동 정리, 훅 등록, 규칙 편집도 하지 않고, 이 PC의 SSH 키나 훅 상태도 읽지 않습니다. 설정 변경은 그 실행에만 적용됩니다.
 
 ## 화면과 키
 
@@ -184,6 +240,9 @@ cargo test
 - `crates/core/tests/live.rs`: 실제 프로세스로 트리 종료, PID 재사용 보호, 자기 보호, SSH 감지·끊기
   (Windows, macOS, Linux 모두에서 실행)
 - `crates/app/src/tui.rs`: 화면 렌더링과 선택/접기/종료 대상 검증
+
+README의 화면과 애니메이션은 [`docs/demo`](docs/demo)의 [VHS](https://github.com/charmbracelet/vhs) 스크립트로
+지어낸 스냅샷을 재생해 만듭니다(`cargo build --release` 후 `vhs docs/demo/demo.tape`).
 
 개발 계획과 진행 상황은 [docs/PLAN.md](docs/PLAN.md)에 있습니다.
 

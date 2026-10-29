@@ -176,6 +176,8 @@ pub struct App {
     refresh_now: bool,
     /// Set when the catalog changed, for the collector thread.
     new_env_keys: Option<Vec<String>>,
+    /// Showing a saved snapshot: nothing on this machine is read, ended or changed.
+    replay: bool,
 }
 
 impl App {
@@ -224,18 +226,50 @@ impl App {
             quit: false,
             refresh_now: false,
             new_env_keys: None,
+            replay: false,
         }
+    }
+
+    /// Shows a saved snapshot instead of this machine. Its PIDs may belong to unrelated
+    /// processes here, so nothing is ended, and nothing of this machine (SSH keys, hooks, pipes,
+    /// windows) is read into the screens.
+    pub fn replaying(mut self) -> Self {
+        self.replay = true;
+        self.ssh_config = Vec::new();
+        self.ssh_keys = SshInventory::default();
+        self.status = t(
+            self.lang(),
+            "replay of a saved snapshot: read-only · q quit · 1-6 views",
+            "저장된 스냅샷 재생: 읽기 전용 · q 종료 · 1-6 화면",
+        )
+        .into();
+        self
+    }
+
+    /// In replay, says so and returns true: the caller must not act on this machine.
+    fn read_only(&mut self) -> bool {
+        if self.replay {
+            self.status = t(
+                self.lang(),
+                "replay: read-only, nothing on this machine is changed",
+                "재생 중: 읽기 전용이라 이 PC에서는 아무것도 바꾸지 않음",
+            )
+            .into();
+        }
+        self.replay
     }
 
     pub fn apply(&mut self, snapshot: Snapshot) {
         let model = Model::build(snapshot, &self.catalog);
         self.history.update(&model);
         self.origins.update(&model, &self.catalog);
-        let closed = self.stdio.update(&model);
-        self.origins.note_stdio_closed(&model, &closed);
-        self.hook_states = hooks::state_dir()
-            .map(|dir| hooks::read_states(&dir, &model))
-            .unwrap_or_default();
+        if !self.replay {
+            let closed = self.stdio.update(&model);
+            self.origins.note_stdio_closed(&model, &closed);
+            self.hook_states = hooks::state_dir()
+                .map(|dir| hooks::read_states(&dir, &model))
+                .unwrap_or_default();
+        }
         // The lists are rebuilt and re-sorted every refresh: keep the cursor on the same row.
         let cleanup_key = |c: &Candidate| (c.kind, c.root_pid);
         let ssh_key = |c: &SshConn| (c.pid, c.remote.clone(), c.local.clone());
@@ -243,13 +277,15 @@ impl App {
         let was_ssh = self.ssh.get(self.selected[2]).map(ssh_key);
         let port_key = |p: &Port| (p.pid, p.port);
         let was_port = self.visible_ports().get(self.selected[3]).map(|p| port_key(p));
-        self.candidates = candidates(
-            &model,
-            &self.history,
-            &self.origins,
-            &self.rules.policy(),
-            windowed_pids,
-        );
+        let mut policy = self.rules.policy();
+        let replay = self.replay;
+        if replay {
+            // One saved moment: there is no waiting for an owner to stay gone.
+            policy.owner_gone_grace = 0;
+        }
+        self.candidates = candidates(&model, &self.history, &self.origins, &policy, || {
+            if replay { HashSet::new() } else { windowed_pids() }
+        });
         self.ssh = net::ssh_connections(&model, &self.catalog, &self.ssh_config);
         self.ports = net::ports(&model);
         if let Some(i) = was_port.and_then(|k| self.visible_ports().iter().position(|p| port_key(p) == k)) {
@@ -614,6 +650,9 @@ impl App {
 
     /// Reads, for each agent with hooks, whether agentlens is registered there.
     fn read_hooks_registered(&mut self) {
+        if self.replay {
+            return;
+        }
         self.hooks_registered = self
             .catalog
             .agents
@@ -1400,7 +1439,7 @@ impl App {
         if VIEWS[i] == View::Settings && self.view != View::Settings {
             self.read_hooks_registered();
         }
-        if VIEWS[i] == View::Network && self.view != View::Network {
+        if VIEWS[i] == View::Network && self.view != View::Network && !self.replay {
             self.ssh_config = net::load_ssh_config();
             self.ssh_keys = keys::load_default(&self.ssh_config);
         }
@@ -1654,6 +1693,9 @@ impl App {
 
     fn run_confirmed(&mut self) {
         let Some(c) = self.confirm.take() else { return };
+        if self.read_only() {
+            return;
+        }
         self.status = self.summarize(&actions::execute(&c.plan));
         self.refresh_now = true;
     }
@@ -1714,6 +1756,9 @@ impl App {
     /// Runs automatic cleanup when it is due. The interval counts from when it was switched on
     /// (or the dashboard started), so turning it on never ends anything right away.
     fn auto_cleanup(&mut self) {
+        if self.replay {
+            return;
+        }
         let minutes = self.rules.auto_cleanup_minutes;
         let Some(now) = self.model.as_ref().map(|m| m.taken_at) else {
             return;
@@ -1800,6 +1845,14 @@ impl App {
         // Starts the interval now, from the current snapshot.
         self.auto_cleanup();
         let lang = self.lang();
+        if self.replay {
+            self.status = tf!(
+                lang,
+                "replay: {key} = {value} for this run only",
+                "재생 중: {key} = {value} 이번 실행에만 적용"
+            );
+            return;
+        }
         self.status = match Rules::save_setting(key, &value) {
             Ok(path) => {
                 let path = path.display();
@@ -1819,6 +1872,9 @@ impl App {
 
     /// Adds or removes agentlens in the agent's own hook settings.
     fn toggle_hooks(&mut self, agent: usize) {
+        if self.read_only() {
+            return;
+        }
         let lang = self.lang();
         let a = &self.catalog.agents[agent];
         let Some(def) = a.hooks.clone() else { return };
@@ -1846,6 +1902,9 @@ impl App {
     }
 
     fn register_host(&mut self) {
+        if self.read_only() {
+            return;
+        }
         let Some(Item::Group(key)) = self.items.get(self.selected[0]).cloned() else {
             self.status = t(
                 self.lang(),
@@ -1881,6 +1940,9 @@ impl App {
     }
 
     fn edit_rules(&mut self) {
+        if self.read_only() {
+            return;
+        }
         let Some(path) = rules_path() else { return };
         if !path.exists()
             && let Err(e) = self.rules.save()
@@ -2063,6 +2125,21 @@ pub fn run(rules: Rules, installed: Vec<(String, String)>) -> anyhow::Result<()>
     result
 }
 
+/// Browses a saved snapshot, read-only.
+pub fn run_replay(rules: Rules, snapshot: Snapshot) -> anyhow::Result<()> {
+    let mut app = App::new(rules, Vec::new()).replaying();
+    app.apply(snapshot);
+    // No collector: nothing new ever arrives, and refresh requests go nowhere.
+    let (_snap_tx, snap_rx) = mpsc::channel::<Snapshot>();
+    let (wake_tx, _wake_rx) = mpsc::channel::<Wake>();
+    let mut terminal = ratatui::init();
+    crossterm::execute!(std::io::stdout(), crossterm::event::EnableMouseCapture)?;
+    let result = event_loop(&mut terminal, &mut app, &snap_rx, &wake_tx);
+    let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture);
+    ratatui::restore();
+    result
+}
+
 fn event_loop(
     terminal: &mut DefaultTerminal,
     app: &mut App,
@@ -2135,9 +2212,9 @@ mod tests {
         key(&mut app, KeyCode::Char('2'));
         assert!(screen(&mut app).contains("dev-server.mjs"));
         key(&mut app, KeyCode::Char('3'));
-        assert!(screen(&mut app).contains("no SSH connections"));
+        assert!(screen(&mut app).contains("staging.example.com"));
         key(&mut app, KeyCode::Char('4'));
-        assert!(screen(&mut app).contains("no listening ports from agents or orphans"));
+        assert!(screen(&mut app).contains("5173"));
         key(&mut app, KeyCode::Char('5'));
         let s = screen(&mut app);
         assert!(s.contains("agents in catalog: 45"), "{s}");
@@ -2561,5 +2638,33 @@ mod tests {
         let s = screen(&mut app);
         assert!(s.contains("Agent hooks: Claude Code"), "{s}");
         assert!(app.settings().contains(&Setting::Hooks(0)));
+    }
+
+    #[test]
+    fn replay_reads_and_changes_nothing_on_this_machine() {
+        let snapshot: Snapshot = serde_json::from_str(include_str!("../../core/tests/fixtures/sample.json")).unwrap();
+        let mut app = App::new(Rules::default(), Vec::new()).replaying();
+        app.apply(snapshot);
+        // One saved moment: the closed session's leftover is proposed at once.
+        let leftover = app.candidates.iter().find(|c| c.root_pid == 25480).unwrap();
+        assert!(leftover.eligible && leftover.reasons.iter().any(|r| r == "owner-gone"));
+        // Confirming ends nothing: these PIDs may be anything on this machine.
+        key(&mut app, KeyCode::Char('2'));
+        key(&mut app, KeyCode::Char('x'));
+        assert!(app.confirm.is_some());
+        key(&mut app, KeyCode::Char('y'));
+        assert!(
+            app.confirm.is_none() && app.status.contains("read-only"),
+            "{}",
+            app.status
+        );
+        // No SSH keys or hooks of this machine.
+        key(&mut app, KeyCode::Char('3'));
+        assert_eq!(app.ssh_keys, SshInventory::default());
+        key(&mut app, KeyCode::Char('6'));
+        assert!(app.hooks_registered.is_empty());
+        // Applied for this run, never saved to the rules file (the first setting is the language).
+        key(&mut app, KeyCode::Right);
+        assert!(app.status.contains("이번 실행에만"), "{}", app.status);
     }
 }
