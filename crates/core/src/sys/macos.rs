@@ -122,8 +122,10 @@ impl Lister {
     pub fn list(&mut self) -> Vec<RawProc> {
         let buf = kinfo_records(&mut [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_ALL]);
         let (numer, denom) = timebase();
-        buf.chunks_exact(kinfo::SIZE)
-            .map(KinfoProc)
+        buf.as_chunks::<{ kinfo::SIZE }>()
+            .0
+            .iter()
+            .map(|c| KinfoProc(c.as_slice()))
             .filter(|k| !k.zombie())
             .map(|k| {
                 let pid = k.pid();
