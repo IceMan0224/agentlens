@@ -74,7 +74,12 @@ also available in Korean ([screenshot](docs/images/sessions-ko.png)).
 
 ## Installation
 
-Requires [Rust](https://rustup.rs) 1.88 or newer.
+Download the archive for your platform from the
+[latest release](https://github.com/IceMan0224/agentlens/releases/latest) (Windows x64, Linux x64,
+macOS Apple silicon and Intel), unpack it and run `agentlens`. On macOS, the first run of a
+downloaded binary may need `xattr -d com.apple.quarantine agentlens`.
+
+To build it yourself instead, you need [Rust](https://rustup.rs) 1.88 or newer:
 
 ```sh
 cargo install --git https://github.com/IceMan0224/agentlens agentlens
