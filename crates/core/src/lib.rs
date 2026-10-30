@@ -4,6 +4,7 @@ pub mod health;
 pub mod hooks;
 pub mod install;
 pub mod keys;
+pub mod mcp;
 pub mod model;
 pub mod net;
 pub mod origin;

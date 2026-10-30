@@ -83,6 +83,8 @@ url = ["openrouter"]
 # Agents: Orca's catalog of 45. `exe` lists command names; `cmd` lists package paths seen when
 # an agent runs as `node <package>`; `traces` lists paths an agent leaves in the command lines
 # of processes it starts (shell snapshots, runtimes), which mark them as agent machinery.
+# `[agents.hooks]` and `[agents.mcp]` say where an agent keeps its hooks and its user-level MCP
+# servers, for registering agentlens from Settings.
 
 [[agents]]
 id = "claude"
@@ -101,6 +103,15 @@ pid_env = "CLAUDE_PID"
 settings = "~/.claude/settings.json"
 events = { SessionStart = "start", UserPromptSubmit = "working", Stop = "waiting", Notification = "attention", "Notification:idle_prompt" = "waiting", SessionEnd = "end" }
 
+[agents.mcp]
+# Claude Code rewrites this file all the time, so its own commands change it.
+config = "~/.claude.json"
+format = "json"
+key = ["mcpServers"]
+entry = { command = "{exe}", args = ["mcp"] }
+add = ["claude", "mcp", "add", "--scope", "user", "agentlens", "--", "{exe}", "mcp"]
+remove = ["claude", "mcp", "remove", "--scope", "user", "agentlens"]
+
 [[agents]]
 # Orca launches agent teams through its own `orca` command, which would match the host.
 id = "claude-agent-teams"
@@ -110,6 +121,12 @@ name = "Claude Agent Teams"
 id = "codebuddy"
 name = "CodeBuddy"
 exe = ["codebuddy"]
+
+[agents.mcp]
+config = "~/.codebuddy/.mcp.json"
+format = "json"
+key = ["mcpServers"]
+entry = { type = "stdio", command = "{exe}", args = ["mcp"] }
 
 [[agents]]
 id = "openclaude"
@@ -122,6 +139,12 @@ name = "Codex"
 exe = ["codex"]
 cmd = ["@openai/codex", "/openai/codex/bin/"]
 traces = ["/.codex/", "/openai/codex/"]
+
+[agents.mcp]
+config = "~/.codex/config.toml"
+format = "toml"
+key = ["mcp_servers"]
+entry = { command = "{exe}", args = ["mcp"] }
 
 [[agents]]
 id = "autohand"
@@ -143,6 +166,12 @@ id = "opencode"
 name = "OpenCode"
 exe = ["opencode"]
 cmd = ["@opencode/cli", "/opencode-ai/"]
+
+[agents.mcp]
+config = "~/.config/opencode/opencode.json"
+format = "json"
+key = ["mcp"]
+entry = { type = "local", command = ["{exe}", "mcp"], enabled = true }
 
 [[agents]]
 id = "opencode2"
@@ -174,6 +203,12 @@ id = "qoder"
 name = "Qoder"
 exe = ["qodercli"]
 
+[agents.mcp]
+config = "~/.qoder/settings.json"
+format = "json"
+key = ["mcpServers"]
+entry = { command = "{exe}", args = ["mcp"] }
+
 [[agents]]
 id = "qoder-cn"
 name = "Qoder CN"
@@ -184,6 +219,12 @@ id = "gemini"
 name = "Gemini CLI"
 exe = ["gemini"]
 cmd = ["@google/gemini-cli"]
+
+[agents.mcp]
+config = "~/.gemini/settings.json"
+format = "json"
+key = ["mcpServers"]
+entry = { command = "{exe}", args = ["mcp"] }
 
 [[agents]]
 id = "antigravity"
@@ -206,16 +247,34 @@ name = "Amp"
 exe = ["amp"]
 cmd = ["@sourcegraph/amp"]
 
+[agents.mcp]
+config = "~/.config/amp/settings.json"
+format = "json"
+key = ["amp.mcpServers"]
+entry = { command = "{exe}", args = ["mcp"] }
+
 [[agents]]
 id = "kilo"
 name = "Kilo Code"
 exe = ["kilo"]
 cmd = ["@kilocode/cli"]
 
+[agents.mcp]
+config = "~/.config/kilo/kilo.json"
+format = "json"
+key = ["mcp"]
+entry = { type = "local", command = ["{exe}", "mcp"], enabled = true }
+
 [[agents]]
 id = "kiro"
 name = "Kiro CLI"
 exe = ["kiro-cli"]
+
+[agents.mcp]
+config = "~/.kiro/settings/mcp.json"
+format = "json"
+key = ["mcpServers"]
+entry = { command = "{exe}", args = ["mcp"] }
 
 [[agents]]
 id = "crush"
@@ -228,6 +287,12 @@ id = "aug"
 name = "Auggie"
 exe = ["auggie"]
 cmd = ["@augmentcode/auggie"]
+
+[agents.mcp]
+config = "~/.augment/settings.json"
+format = "json"
+key = ["mcpServers"]
+entry = { command = "{exe}", args = ["mcp"] }
 
 [[agents]]
 id = "cline"
@@ -260,15 +325,33 @@ id = "cursor"
 name = "Cursor Agent"
 exe = ["cursor-agent"]
 
+[agents.mcp]
+config = "~/.cursor/mcp.json"
+format = "json"
+key = ["mcpServers"]
+entry = { command = "{exe}", args = ["mcp"] }
+
 [[agents]]
 id = "droid"
 name = "Droid"
 exe = ["droid"]
 
+[agents.mcp]
+config = "~/.factory/mcp.json"
+format = "json"
+key = ["mcpServers"]
+entry = { command = "{exe}", args = ["mcp"] }
+
 [[agents]]
 id = "kimi"
 name = "Kimi"
 exe = ["kimi"]
+
+[agents.mcp]
+config = "~/.kimi/mcp.json"
+format = "json"
+key = ["mcpServers"]
+entry = { command = "{exe}", args = ["mcp"] }
 
 [[agents]]
 id = "mistral-vibe"
@@ -281,10 +364,22 @@ name = "Qwen Code"
 exe = ["qwen"]
 cmd = ["@qwen-code/qwen-code"]
 
+[agents.mcp]
+config = "~/.qwen/settings.json"
+format = "json"
+key = ["mcpServers"]
+entry = { command = "{exe}", args = ["mcp"] }
+
 [[agents]]
 id = "rovo"
 name = "Rovo Dev"
 exe = ["acli"]
+
+[agents.mcp]
+config = "~/.rovodev/mcp.json"
+format = "json"
+key = ["mcpServers"]
+entry = { command = "{exe}", args = ["mcp"], transport = "stdio" }
 
 [[agents]]
 id = "hermes"
@@ -301,6 +396,12 @@ id = "copilot"
 name = "GitHub Copilot CLI"
 exe = ["copilot"]
 cmd = ["@github/copilot"]
+
+[agents.mcp]
+config = "~/.copilot/mcp-config.json"
+format = "json"
+key = ["mcpServers"]
+entry = { type = "local", command = "{exe}", args = ["mcp"], tools = ["*"] }
 
 [[agents]]
 id = "grok"

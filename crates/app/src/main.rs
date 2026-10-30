@@ -1,5 +1,7 @@
 mod i18n;
+mod mcp;
 mod report;
+mod tools;
 mod tui;
 
 use std::time::Duration;
@@ -21,6 +23,10 @@ fn main() -> anyhow::Result<()> {
         // Run for every event: never disturb the agent, whatever happens.
         let _ = hook(args.get(1).map(String::as_str));
         return Ok(());
+    }
+    // `mcp` is not for people either: agents start it once it is registered in Settings.
+    if args.first().map(String::as_str) == Some("mcp") {
+        return mcp::serve();
     }
     let rules = Rules::load().map_err(anyhow::Error::msg)?;
     let installed = install::scan(&Catalog::builtin().with_rules(&rules));

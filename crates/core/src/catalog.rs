@@ -100,6 +100,9 @@ pub struct AgentDef {
     /// The agent's hook settings, where agentlens can register itself.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hooks: Option<HookDef>,
+    /// The agent's MCP settings, where agentlens can register its MCP server.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp: Option<McpDef>,
 }
 
 /// Where an agent keeps its hooks and what its events mean.
@@ -111,6 +114,26 @@ pub struct HookDef {
     /// Agent event (or `<event>:<notification_type>`) -> `start`, `working`, `waiting`,
     /// `attention` or `end`.
     pub events: std::collections::BTreeMap<String, String>,
+}
+
+/// Where an agent keeps its user-level MCP servers and what an entry looks like.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct McpDef {
+    /// Settings file; `~/` is the user's home.
+    pub config: String,
+    /// `json` or `toml`.
+    pub format: String,
+    /// Keys from the top of the file to the map of servers, which are keyed by name.
+    pub key: Vec<String>,
+    /// The server's entry; `{exe}` stands for agentlens's own path.
+    pub entry: toml::Table,
+    /// For agents that keep rewriting their settings file: the agent's own commands that add
+    /// and remove the server, with `{exe}`. The file is then only read.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub add: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub remove: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -232,6 +255,7 @@ impl Catalog {
                     def.session_env = agent.session_env.or(def.session_env.take());
                     def.pid_env = agent.pid_env.or(def.pid_env.take());
                     def.hooks = agent.hooks.or(def.hooks.take());
+                    def.mcp = agent.mcp.or(def.mcp.take());
                 }
                 None => self.agents.push(agent),
             }

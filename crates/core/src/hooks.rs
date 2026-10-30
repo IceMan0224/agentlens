@@ -32,9 +32,9 @@ struct Record {
     at: u64,
 }
 
-/// `%LOCALAPPDATA%\agentlens\sessions` on Windows, `$XDG_STATE_HOME` (or `~/.local/state`)
-/// `/agentlens/sessions` elsewhere.
-pub fn state_dir() -> Option<PathBuf> {
+/// `%LOCALAPPDATA%\agentlens` on Windows, `$XDG_STATE_HOME` (or `~/.local/state`)`/agentlens`
+/// elsewhere.
+pub fn data_dir() -> Option<PathBuf> {
     let dir = if cfg!(windows) {
         PathBuf::from(std::env::var_os("LOCALAPPDATA")?)
     } else {
@@ -43,15 +43,20 @@ pub fn state_dir() -> Option<PathBuf> {
             None => PathBuf::from(std::env::var_os("HOME")?).join(".local").join("state"),
         }
     };
-    Some(dir.join("agentlens").join("sessions"))
+    Some(dir.join("agentlens"))
+}
+
+/// Where session state files are kept: `sessions` in [`data_dir`].
+pub fn state_dir() -> Option<PathBuf> {
+    Some(data_dir()?.join("sessions"))
 }
 
 /// `~/` at the start of a settings path is the user's home.
-fn expand(path: &str) -> Option<PathBuf> {
+pub(crate) fn expand(path: &str) -> Option<PathBuf> {
     match path.strip_prefix("~/") {
         Some(rest) => {
             let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })?;
-            Some(PathBuf::from(home).join(rest))
+            Some(rest.split('/').fold(PathBuf::from(home), |p, part| p.join(part)))
         }
         None => Some(PathBuf::from(path)),
     }
@@ -292,25 +297,44 @@ pub fn set_registered(def: &HookDef, agent: &str, exe: &Path, on: bool) -> Resul
         }
     }
     let text = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())? + "\n";
+    write_checked(&path, existing.as_deref(), &text, |t| {
+        serde_json::from_str::<Value>(t).is_ok()
+    })?;
+    Ok(path)
+}
+
+/// Replaces an agent's settings file with `text`, backing up the old one first
+/// (`<file>.agentlens-bak`). The file is read back and `check`ed, and restored if that fails.
+pub(crate) fn write_checked(
+    path: &Path,
+    existing: Option<&str>,
+    text: &str,
+    check: impl Fn(&str) -> bool,
+) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let backup = path.with_file_name(format!(
         "{}.agentlens-bak",
-        path.file_name().and_then(|n| n.to_str()).unwrap_or("settings.json")
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("settings")
     ));
-    if let Some(old) = &existing {
+    if let Some(old) = existing {
         std::fs::write(&backup, old).map_err(|e| e.to_string())?;
     }
-    std::fs::write(&path, &text).map_err(|e| e.to_string())?;
-    let written = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    if serde_json::from_str::<Value>(&written).is_err() {
-        if let Some(old) = &existing {
-            let _ = std::fs::write(&path, old);
+    std::fs::write(path, text).map_err(|e| e.to_string())?;
+    let written = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    if !check(&written) {
+        match existing {
+            Some(old) => {
+                let _ = std::fs::write(path, old);
+            }
+            None => {
+                let _ = std::fs::remove_file(path);
+            }
         }
         return Err(format!("{}: could not be written correctly; restored", path.display()));
     }
-    Ok(path)
+    Ok(())
 }
 
 #[cfg(test)]
