@@ -3,6 +3,7 @@
 
 use std::collections::HashSet;
 
+use agentlens_core::actions::plan;
 use agentlens_core::catalog::Catalog;
 use agentlens_core::health::{Candidate, CandidateKind, History, Policy, candidates};
 use agentlens_core::model::Model;
@@ -488,4 +489,65 @@ fn an_unmarked_program_is_still_nobodys_business() {
         Vec::new(),
     );
     assert!(m.orphans.is_empty());
+}
+
+#[test]
+fn a_closed_input_does_not_end_what_a_live_session_owns() {
+    let marks = [("CLAUDE_PID", "12")];
+    let shell = proc(30, 29, BASH, &["bash", "-c", "uv run"], &[]);
+    let launcher = proc(30, 29, NOHUP, &["nohup", "uv"], &[]);
+    for root in [shell, launcher] {
+        let mut processes = session(&[], &[]);
+        processes.push(root);
+        processes.push(proc(31, 30, UV, &["uv", "run", "python", "run.py"], &marks));
+        let mut m = model(T0, processes, Vec::new());
+        let mut origins = tracked(&mut m);
+        origins.note_stdio_closed(&m, &HashSet::from([(30, m.procs[&30].start_time)]));
+        let quick = Policy {
+            owner_gone_grace: 0,
+            ..policy()
+        };
+        let found = orphans(&m, &origins, &quick, HashSet::new());
+        let tree = find(&found, 30).expect("listed");
+        assert!(!tree.eligible, "{:?}", tree.reasons);
+    }
+}
+
+#[test]
+fn a_host_older_than_the_session_only_adopted_what_left_it() {
+    // WSL: a process whose parent exits moves under the session's relay, below the WSL host.
+    let wsl = "/usr/lib/SessionLeader";
+    let marks = [("CLAUDE_PID", "12")];
+    let processes = vec![
+        proc(5, 0, wsl, &["SessionLeader"], &[]),
+        proc(6, 5, "/init", &["Relay(7)"], &[]),
+        proc(12, 6, CLAUDE, &["claude"], &[]),
+        proc(30, 6, "/usr/bin/python3", &["python3", "run.py"], &marks),
+    ];
+    let mut m = model(T0, processes, Vec::new());
+    tracked(&mut m);
+    assert_eq!(m.detached.get(&12), Some(&vec![30]));
+}
+
+#[test]
+fn a_host_the_session_started_keeps_what_it_runs() {
+    let marks = [("CLAUDE_PID", "12")];
+    let mut processes = session(&[], &[]);
+    let mut editor = proc(30, 29, "C:\\Apps\\Code.exe", &["code"], &marks);
+    editor.name = "Code.exe".into();
+    processes.push(editor);
+    processes.push(proc(31, 30, NODE, &["node", "server.js"], &marks));
+    let mut m = model(T0, processes, Vec::new());
+    tracked(&mut m);
+    assert!(!m.is_detached(31));
+}
+
+#[test]
+fn ending_a_session_takes_what_it_started_outside_its_tree() {
+    let mut processes = session(&[], &[]);
+    processes.extend(detached_server("12"));
+    let mut m = model(T0, processes, Vec::new());
+    tracked(&mut m);
+    let targets: Vec<u32> = plan(&m, &[12]).targets.iter().map(|t| t.pid).collect();
+    assert!([12, 13, 30, 31, 32].iter().all(|p| targets.contains(p)), "{targets:?}");
 }

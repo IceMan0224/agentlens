@@ -185,16 +185,19 @@ impl Origins {
     }
 
     /// Puts what left a live session's process tree back in that session: the topmost process
-    /// of each such tree, or the orphan it runs under (a launcher, a shell). Programs a host runs (an editor
-    /// opened from an agent) inherit the marks but are the host's.
+    /// of each such tree, or the orphan it runs under (a launcher, a shell). A host the session
+    /// started (an editor opened from an agent) keeps what it runs, though those inherit the
+    /// marks; one older than the session did not start them, it adopted them (WSL's relays).
     pub fn attach(&self, model: &mut Model) {
         let listed: HashSet<u32> = model.orphans.iter().map(|o| o.pid).collect();
         let mut detached: HashMap<u32, Vec<u32>> = HashMap::new();
         for (&pid, &owner) in &self.owned {
             let chain = model.ancestors(pid);
-            if chain.first().is_some_and(|pp| self.owned.contains_key(pp))
-                || chain.iter().any(|a| model.roles.get(a) == Some(&Role::Host))
-            {
+            let started = model.procs.get(&owner).map_or(0, |o| o.start_time);
+            let host_runs_it = chain
+                .iter()
+                .any(|a| model.roles.get(a) == Some(&Role::Host) && model.procs[a].start_time >= started);
+            if host_runs_it || chain.first().is_some_and(|pp| self.owned.contains_key(pp)) {
                 continue;
             }
             let tops = detached.entry(owner).or_default();
@@ -215,10 +218,16 @@ impl Origins {
         }
     }
 
+    /// Part of the tree has a live owner. A launcher or shell at the root shows no marks of its
+    /// own, so the whole tree has to be asked.
+    fn owned_tree(&self, model: &Model, pid: u32) -> bool {
+        model.subtree(pid).iter().any(|q| self.owned.contains_key(q))
+    }
+
     /// Nobody has been able to write to the process's input for at least `grace` seconds, and
-    /// its owner is not known to be alive.
+    /// no owner of its tree is known to be alive.
     pub fn stdio_closed(&self, model: &Model, pid: u32, grace: u64) -> bool {
-        !self.owned.contains_key(&pid)
+        !self.owned_tree(model, pid)
             && model.procs.get(&pid).is_some_and(|p| {
                 self.stdio_since
                     .get(&key(p))
@@ -232,7 +241,7 @@ impl Origins {
             .stdio_since
             .iter()
             .filter(|(k, since)| {
-                alive(model, **k) && !self.owned.contains_key(&k.0) && model.taken_at.saturating_sub(**since) >= grace
+                alive(model, **k) && !self.owned_tree(model, k.0) && model.taken_at.saturating_sub(**since) >= grace
             })
             .map(|(k, _)| k.0)
             .collect();

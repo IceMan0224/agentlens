@@ -139,6 +139,9 @@ A process counts as a leftover in either of these cases:
 A leftover is proposed for cleanup 15 seconds after its owner is seen gone. The full rules are in
 the Rules view and the [Korean documentation](README.ko.md).
 
+A process that left a running session's tree, such as `nohup uv run python run.py`, is not a
+leftover. It stays under that session as *detached*, and ending the session ends it too.
+
 ### Agent hooks
 
 Switching on **Agent hooks** in Settings adds agentlens to the agent's own hook settings

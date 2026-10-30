@@ -195,7 +195,7 @@ pub fn candidates(
     for group in &model.groups {
         for tab in &group.tabs {
             for session in &tab.sessions {
-                let tree = model.subtree(session.root_pid);
+                let tree = model.session_pids(session.root_pid);
                 let idle = history.idle_secs(model, &tree);
                 if idle >= policy.idle_minutes * 60 {
                     out.push(Candidate {
@@ -317,7 +317,7 @@ fn keep_in_use(model: &Model, policy: &Policy, windowed: impl FnOnce() -> HashSe
             for t in &g.tabs {
                 for s in &t.sessions {
                     let label = format!("{} @ {} / {}", s.agent_name, g.name, t.label);
-                    let tree = model.subtree(s.root_pid);
+                    let tree = model.session_pids(s.root_pid);
                     for c in model.tcp.iter().filter(|c| tree.contains(&c.pid)) {
                         sessions.insert((c.local_addr.as_str(), c.local_port, c.remote_port), label.clone());
                     }

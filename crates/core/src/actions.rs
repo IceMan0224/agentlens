@@ -35,7 +35,8 @@ pub enum Outcome {
 pub fn plan(model: &Model, roots: &[u32]) -> KillPlan {
     let mut pids: Vec<u32> = Vec::new();
     for &root in roots {
-        for pid in model.subtree(root) {
+        // Ending a session ends what it started outside its tree too: the row counts them.
+        for pid in model.session_pids(root) {
             if !pids.contains(&pid) {
                 pids.push(pid);
             }

@@ -1170,7 +1170,7 @@ impl App {
         let Some(p) = m.procs.get(&pid) else {
             return Paragraph::new("").block(block);
         };
-        let tree = m.subtree(pid);
+        let tree = m.session_pids(pid);
         let (name, role, age) = (
             &p.name,
             role_label(m, pid),
@@ -1279,14 +1279,17 @@ impl App {
                 "An agent session whose ancestors end at a shell, agent or runtime with no host above lost \
                  whatever started it: the whole session is an orphan.",
                 "Other parentless processes outside sessions count only when their tree holds agent machinery \
-                 (agent, REPL, MCP server, agent or host traces), or they are a runtime (node, python …) or a \
-                 shell running one. Hosts and system processes never do.",
+                 (agent, REPL, MCP server, agent or host traces), they are a runtime (node, python …) or a \
+                 shell running one, they carry an agent's marks, or they are a launcher (nohup) that only \
+                 started something that does. Hosts and system processes never do. Those a running session \
+                 owns stay under it as detached.",
                 "Whatever an ended session left behind is an orphan too, found two ways: the dashboard saw it \
                  under that session, or its environment names the session (AI_AGENT, CLAUDE_PID, \
                  CLAUDE_CODE_SESSION_ID), which also covers leftovers from before the dashboard started. \
                  It counts 15 s after its owner is seen gone (owner-gone, from session …). On Windows a \
                  parentless process whose input pipe lost its writer (stdio-closed) can never be reached \
-                 again; it is proposed when it is a runtime or shell, shown otherwise.",
+                 again; it is proposed when it is a runtime or shell, shown otherwise, and never while a live \
+                 session owns part of its tree.",
                 "Proposed for cleanup (yellow): orphans holding agent machinery, and everything an ended \
                  session left, dev servers included. Leftovers with a window or that a live session is \
                  connected to are kept unless Settings says otherwise.",
@@ -1299,13 +1302,13 @@ impl App {
                 "에이전트 세션의 조상이 호스트 없이 셸·에이전트·런타임에서 끊기면 세션을 띄운 쪽이 종료된 \
                  것이므로 세션 전체가 고아입니다.",
                 "세션 밖의 부모 없는 프로세스는 트리에 에이전트 구성요소(에이전트, REPL, MCP 서버, 에이전트·호스트 \
-                 흔적)가 있거나, 런타임(node, python …)이거나 런타임을 돌리는 셸일 때만 고아로 봅니다. 호스트와 \
+                 흔적)가 있거나, 런타임(node, python …)이거나 런타임을 돌리는 셸이거나, 에이전트 표식이 있거나, 표식 있는 프로그램을 띄우기만 한 실행기(nohup)일 때만 고아로 봅니다. 실행 중인 세션이 소유한 것은 그 세션 밑에 분리됨으로 표시합니다. 호스트와 \
                  시스템 프로세스는 제외합니다.",
                 "끝난 세션이 남긴 것도 고아입니다. 대시보드가 그 세션 아래에서 본 적이 있거나, 환경변수(AI_AGENT, \
                  CLAUDE_PID, CLAUDE_CODE_SESSION_ID)에 세션이 적혀 있으면 알 수 있어 대시보드를 켜기 전에 남은 것도 \
                  찾습니다. 주인이 사라진 것을 본 뒤 15초가 지나면 고아로 봅니다(주인 세션 종료, 출처 세션 …). Windows에서는 \
                  부모 없는 프로세스의 입력 파이프에 쓰는 쪽이 모두 닫혔으면(입력 채널 끊김) 다시는 요청을 받을 수 \
-                 없으므로, 런타임·셸이면 제안하고 그 밖에는 보여 줍니다.",
+                 없으므로, 런타임·셸이면 제안하고 그 밖에는 보여 줍니다. 트리 일부를 살아 있는 세션이 소유하면 제안하지 않습니다.",
                 "정리 후보로 기본 제안(노란색)하는 것: 에이전트 구성요소가 남은 고아, 그리고 dev 서버를 포함해 끝난 \
                  세션이 남긴 모든 것. 창이 있거나 살아 있는 세션이 연결해 쓰는 것은 설정에서 바꾸지 않는 한 남겨 둡니다.",
             ],
@@ -2807,6 +2810,29 @@ mod tests {
         app.apply(next);
         assert!(app.candidates.iter().any(|c| c.root_pid == 4));
         assert_eq!(app.candidates[app.selected[1]].root_pid, picked);
+    }
+
+    #[test]
+    fn detached_trees_show_under_their_session() {
+        let mut snapshot: Snapshot =
+            serde_json::from_str(include_str!("../../core/tests/fixtures/sample.json")).unwrap();
+        let start = snapshot.processes.iter().find(|p| p.pid == 33472).unwrap().start_time;
+        let mut uv = snapshot.processes[0].clone();
+        (uv.pid, uv.ppid, uv.name, uv.start_time) = (4_100_001, Some(3_999_999), "uv.exe".into(), start + 5);
+        uv.cmd = vec!["uv".into(), "run".into(), "python".into(), "run.py".into()];
+        uv.env = vec![("CLAUDE_PID".into(), "33472".into())];
+        snapshot.processes.push(uv);
+        let mut app = App::new(Rules::default(), Vec::new());
+        app.apply(snapshot);
+        assert!(screen(&mut app).contains("1 detached"));
+
+        let session = app.items.iter().position(|i| *i == Item::Session(33472)).unwrap();
+        app.selected[0] = session;
+        key(&mut app, KeyCode::Right);
+        let mut terminal = Terminal::new(TestBackend::new(160, 90)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        assert!(app.items.contains(&Item::Proc(4_100_001)));
+        assert!(!app.items.contains(&Item::Orphan(4_100_001)), "listed once");
     }
 
     #[test]
