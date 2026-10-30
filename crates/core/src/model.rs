@@ -301,6 +301,20 @@ fn first_env<'a>(
 }
 
 impl Model {
+    /// Ids of the catalog hosts with a process running, with or without agent sessions.
+    pub fn running_hosts<'a>(&self, catalog: &'a Catalog) -> Vec<&'a str> {
+        let mut ids: Vec<&str> = self
+            .procs
+            .values()
+            .filter(|p| self.roles.get(&p.pid) == Some(&Role::Host))
+            .filter_map(|p| match_host(catalog, p))
+            .map(|i| catalog.hosts[i].id.as_str())
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
     /// Takes the snapshot by value: it is rebuilt every second, and copying every process's
     /// strings would double the work and the peak memory.
     pub fn build(snapshot: Snapshot, catalog: &Catalog) -> Self {

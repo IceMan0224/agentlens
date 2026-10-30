@@ -147,6 +147,13 @@ pub struct HostDef {
     /// Substrings of the executable path.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub path: Vec<String>,
+    /// Commands on `PATH` that show the host is installed, for one whose process goes by
+    /// another name.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub command: Vec<String>,
+    /// Names of the host in the system's app launchers, whole or as the leading words.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub app: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub traces: Vec<String>,
     /// Environment variable whose value identifies the tab a process belongs to.
@@ -268,6 +275,8 @@ impl Catalog {
                     }
                     push_new(&mut def.exe, host.exe);
                     push_new(&mut def.path, host.path);
+                    push_new(&mut def.command, host.command);
+                    push_new(&mut def.app, host.app);
                     push_new(&mut def.traces, host.traces);
                     def.tab_env = host.tab_env.or(def.tab_env.take());
                     def.label_env = host.label_env.or(def.label_env.take());
@@ -317,6 +326,8 @@ impl Catalog {
         }
         for host in &mut self.hosts {
             lower(&mut host.exe);
+            lower(&mut host.command);
+            lower(&mut host.app);
             paths(&mut host.path);
             paths(&mut host.traces);
             if host.name.is_empty() {

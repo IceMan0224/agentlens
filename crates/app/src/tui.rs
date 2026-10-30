@@ -11,6 +11,7 @@ use agentlens_core::health::{
     Candidate, CandidateKind, History, SessionState, candidates, fmt_duration, session_state, short_cmd,
 };
 use agentlens_core::hooks::{self, HookState};
+use agentlens_core::install;
 use agentlens_core::keys::{self, KeyInfo, SshInventory};
 use agentlens_core::mcp::{self, McpState, inbox};
 use agentlens_core::model::{Group, GroupKind, Model, Role, short_path};
@@ -151,6 +152,8 @@ pub struct App {
     catalog: Catalog,
     rules: Rules,
     installed: Vec<(String, String)>,
+    /// Hosts the install scan found on this machine, by id.
+    installed_hosts: Vec<String>,
     self_pid: u32,
     model: Option<Model>,
     history: History,
@@ -217,6 +220,7 @@ impl App {
             catalog,
             rules,
             installed,
+            installed_hosts: Vec::new(),
             self_pid: std::process::id(),
             model: None,
             history: History::default(),
@@ -1218,8 +1222,19 @@ impl App {
         let path = rules_path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "-".into());
-        let mut installed: Vec<&str> = self.installed.iter().map(|(id, _)| id.as_str()).collect();
-        installed.dedup();
+        // What the install scan found plus what is running now. A replay shows another moment,
+        // so it says nothing of this PC.
+        let live = self.model.as_ref().filter(|_| !self.replay);
+        let mut found_agents: HashSet<&str> = self.installed.iter().map(|(id, _)| id.as_str()).collect();
+        found_agents.extend(
+            live.iter()
+                .flat_map(|m| &m.groups)
+                .flat_map(|g| &g.tabs)
+                .flat_map(|t| &t.sessions)
+                .map(|s| s.agent_id.as_str()),
+        );
+        let mut found_hosts: HashSet<&str> = self.installed_hosts.iter().map(String::as_str).collect();
+        found_hosts.extend(live.iter().flat_map(|m| m.running_hosts(&self.catalog)));
         let (idle, protect) = (
             self.rules.idle_minutes,
             if self.catalog.protect.is_empty() {
@@ -1285,7 +1300,15 @@ impl App {
             Line::from(t(lang, "How orphans are found", "고아 프로세스 판정 원리")).bold(),
         ];
         lines.extend(orphans.iter().map(|l| Line::from(format!("  · {l}"))));
-        let (agents, installed) = (self.catalog.agents.len(), installed.join(", "));
+        let (agents, hosts) = (self.catalog.agents.len(), self.catalog.hosts.len());
+        let (agents_here, other_agents) = split_found(
+            self.catalog.agents.iter().map(|a| (a.id.as_str(), a.name.as_str())),
+            &found_agents,
+        );
+        let (hosts_here, other_hosts) = split_found(
+            self.catalog.hosts.iter().map(|h| (h.id.as_str(), h.name.as_str())),
+            &found_hosts,
+        );
         lines.extend([
             Line::from(""),
             Line::from(tf!(
@@ -1294,27 +1317,12 @@ impl App {
                 "카탈로그의 에이전트: {agents}"
             ))
             .bold(),
-            Line::from(tf!(lang, "installed here: {installed}", "이 PC에 설치됨: {installed}")),
-            Line::from(
-                self.catalog
-                    .agents
-                    .iter()
-                    .map(|a| a.id.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            )
-            .dim(),
+            Line::from(tf!(lang, "on this PC: {agents_here}", "이 PC에 설치됨: {agents_here}")),
+            Line::from(tf!(lang, "others: {other_agents}", "그 외: {other_agents}")).dim(),
             Line::from(""),
-            Line::from(tf!(lang, "hosts: {}", "호스트: {}", self.catalog.hosts.len())).bold(),
-            Line::from(
-                self.catalog
-                    .hosts
-                    .iter()
-                    .map(|h| h.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" · "),
-            )
-            .dim(),
+            Line::from(tf!(lang, "hosts in catalog: {hosts}", "카탈로그의 호스트: {hosts}")).bold(),
+            Line::from(tf!(lang, "on this PC: {hosts_here}", "이 PC에 설치됨: {hosts_here}")),
+            Line::from(tf!(lang, "others: {other_hosts}", "그 외: {other_hosts}")).dim(),
             Line::from(""),
             Line::from(t(lang, "rules.toml example:", "rules.toml 예시:")).bold(),
             Line::from("  idle_minutes = 30"),
@@ -2147,6 +2155,9 @@ impl App {
             Ok(rules) => {
                 self.rules = rules;
                 self.rebuild_catalog();
+                if !self.replay {
+                    self.installed_hosts = install::scan_hosts(&self.catalog);
+                }
                 self.status = t(self.lang(), "rules reloaded", "규칙을 다시 읽음").into();
             }
             Err(e) => self.status = tf!(self.lang(), "rules not reloaded: {e}", "규칙을 다시 읽지 못함: {e}"),
@@ -2291,6 +2302,7 @@ fn popup(area: Rect, width: u16, height: u16) -> Rect {
 
 pub fn run(rules: Rules, installed: Vec<(String, String)>) -> anyhow::Result<()> {
     let mut app = App::new(rules, installed);
+    app.installed_hosts = install::scan_hosts(&app.catalog);
     let (snap_tx, snap_rx) = mpsc::channel::<Snapshot>();
     let (wake_tx, wake_rx) = mpsc::channel::<Wake>();
     let mut collector = Collector::new(app.catalog.env_keys());
@@ -2314,6 +2326,18 @@ pub fn run(rules: Rules, installed: Vec<(String, String)>) -> anyhow::Result<()>
     let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture);
     ratatui::restore();
     result
+}
+
+/// Splits (id, name) pairs into the names found and the others, each joined for display.
+fn split_found<'a>(items: impl Iterator<Item = (&'a str, &'a str)>, found: &HashSet<&str>) -> (String, String) {
+    let (here, others): (Vec<_>, Vec<_>) = items.partition(|(id, _)| found.contains(id));
+    let names = |list: Vec<(&str, &str)>| {
+        if list.is_empty() {
+            return "-".to_string();
+        }
+        list.iter().map(|(_, name)| *name).collect::<Vec<_>>().join(" · ")
+    };
+    (names(here), names(others))
 }
 
 /// Browses a saved snapshot, read-only.
@@ -2483,6 +2507,41 @@ mod tests {
         assert!(app.view == View::Rules);
         let s = screen(&mut app);
         assert!(s.contains('판') && s.contains('정'), "{s}");
+    }
+
+    #[test]
+    fn rules_separate_what_is_on_this_pc() {
+        let mut app = korean_app();
+        app.installed = vec![("claude".into(), "x".into())];
+        app.installed_hosts = vec!["windows-terminal".into()];
+        let text = |app: &App| {
+            app.rules_lines()
+                .iter()
+                .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+                .collect::<Vec<_>>()
+        };
+        let lines = text(&app);
+        let here: Vec<_> = lines.iter().filter(|l| l.starts_with("이 PC")).collect();
+        assert!(
+            here[0].contains("Claude Code") && here[1].contains("Windows Terminal"),
+            "{here:?}"
+        );
+        let others: Vec<_> = lines.iter().filter(|l| l.starts_with("그 외")).collect();
+        assert!(!others[0].contains("Claude Code") && !others[1].contains("Windows Terminal"));
+        assert!(others[1].contains("Zed"));
+
+        // A replay shows another moment, not this PC: only what the scan found counts.
+        app.replay = true;
+        app.installed_hosts.clear();
+        let lines = text(&app);
+        assert!(
+            lines
+                .iter()
+                .filter(|l| l.starts_with("이 PC"))
+                .nth(1)
+                .unwrap()
+                .ends_with(": -")
+        );
     }
 
     #[test]
