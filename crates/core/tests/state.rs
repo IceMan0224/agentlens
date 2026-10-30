@@ -27,6 +27,7 @@ fn model(at: u64, cpu: f32) -> Model {
             processes: vec![proc(10, 0, "pwsh.exe", 0.0), proc(11, 10, "claude.exe", cpu)],
             tcp: Vec::new(),
             listening: Vec::new(),
+            cores: 1,
         },
         &Catalog::builtin(),
     )

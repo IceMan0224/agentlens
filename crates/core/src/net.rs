@@ -436,6 +436,7 @@ mod tests {
                 processes: vec![proc(10, "node", "node cli.js"), proc(11, "ssh", "ssh gh")],
                 tcp: vec![conn(10), conn(11)],
                 listening: Vec::new(),
+                cores: 1,
             },
             &catalog,
         );

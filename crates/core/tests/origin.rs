@@ -35,6 +35,7 @@ fn model(at: u64, processes: Vec<ProcInfo>, tcp: Vec<TcpConn>) -> Model {
             processes,
             tcp,
             listening: Vec::new(),
+            cores: 16,
         },
         &Catalog::builtin(),
     )
@@ -393,6 +394,43 @@ fn what_left_a_live_session_stays_with_that_session() {
 
     let found = orphans(&m, &origins, &policy(), HashSet::new());
     assert!(!find(&found, 30).expect("listed").eligible, "its owner is alive");
+}
+
+#[test]
+fn tabs_of_one_worktree_share_a_row_and_keep_their_own_sessions() {
+    const ORCA: &str = "C:\\Program Files\\Orca\\Orca.exe";
+    let tree = |tab: &'static str, worktree: &'static str, shell: u32, agent: u32| {
+        let env = [("ORCA_TAB_ID", tab), ("ORCA_WORKTREE_ID", worktree)];
+        [
+            proc(shell, 10, SHELL, &["pwsh"], &env),
+            proc(agent, shell, CLAUDE, &["claude"], &env),
+        ]
+    };
+    let same = "w1::C:\\work\\project\\FixIssue";
+    let other = "w2::C:\\work\\project\\Other";
+    let mut processes = vec![proc(10, 0, ORCA, &["Orca.exe"], &[])];
+    processes.extend(tree("t1", same, 20, 21));
+    processes.extend(tree("t2", same, 30, 31));
+    processes.extend(tree("t3", other, 40, 41));
+    let m = model(T0, processes, Vec::new());
+
+    let tabs = &m.groups[0].tabs;
+    assert_eq!(tabs.len(), 2, "one row per worktree");
+    let joined = &tabs[0];
+    assert_eq!(joined.label, "project/FixIssue");
+    let roots: Vec<u32> = joined.sessions.iter().map(|s| s.root_pid).collect();
+    assert_eq!(roots, [21, 31], "each session keeps its own row");
+    assert_eq!(m.tab_label("orca:t2").as_deref(), Some("project/FixIssue"));
+    assert_eq!(m.tab_label("orca:t3").as_deref(), Some("project/Other"));
+}
+
+#[test]
+fn cpu_share_counts_the_whole_machine_as_100() {
+    let mut processes = session(&[], &[]);
+    processes[2].cpu = 200.0;
+    let m = model(T0, processes, Vec::new());
+    assert_eq!(m.cpu(&[12]), 200.0);
+    assert_eq!(m.cpu_share(&[12]), 12.5);
 }
 
 #[test]

@@ -22,6 +22,9 @@ pub struct Snapshot {
     /// Absent from snapshots saved before ports were collected.
     #[serde(default)]
     pub listening: Vec<Listener>,
+    /// Logical CPUs of the machine it was taken on. Absent from older snapshots.
+    #[serde(default)]
+    pub cores: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +38,7 @@ pub struct ProcInfo {
     pub env: Vec<(String, String)>,
     /// Unix seconds. Used with `ppid` to detect PID reuse.
     pub start_time: u64,
+    /// Percent of one logical CPU, so a busy process can exceed 100.
     pub cpu: f32,
     pub private_bytes: u64,
     pub working_set: u64,
@@ -79,6 +83,7 @@ pub struct Collector {
     tcp: Vec<TcpConn>,
     listening: Vec<Listener>,
     last_tcp: Option<Instant>,
+    cores: u32,
 }
 
 struct Known {
@@ -103,6 +108,7 @@ impl Collector {
             tcp: Vec::new(),
             listening: Vec::new(),
             last_tcp: None,
+            cores: std::thread::available_parallelism().map_or(1, |n| n.get() as u32),
         }
     }
 
@@ -186,6 +192,7 @@ impl Collector {
             processes,
             tcp: self.tcp.clone(),
             listening: self.listening.clone(),
+            cores: self.cores,
         }
     }
 

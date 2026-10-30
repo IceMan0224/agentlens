@@ -49,8 +49,11 @@ pub struct Group {
 
 #[derive(Debug, Clone)]
 pub struct Tab {
-    /// `<host id>:<tab_env value>` when the host marks its tabs, else `pid:<tab root>`.
+    /// `<host id>:<label_env value>` when the host names what its tabs work on, so tabs of one
+    /// worktree share a row, else `<host id>:<tab_env value>`, else `pid:<tab root>`.
     pub key: String,
+    /// The host's own tabs in this row, each as `<host id>:<tab_env value>` or `pid:<tab root>`.
+    pub tab_ids: Vec<String>,
     pub label: String,
     /// Processes directly under the host that contain this tab's sessions (usually shells).
     pub root_pids: Vec<u32>,
@@ -100,6 +103,8 @@ pub struct Model {
     pub orphans: Vec<Orphan>,
     pub tcp: Vec<TcpConn>,
     pub listening: Vec<Listener>,
+    /// Logical CPUs; 0 when the snapshot does not say.
+    pub cores: u32,
     /// Pseudo-console glue processes, not worth a row of their own.
     pub pty_glue: HashSet<u32>,
     /// Launchers that only started something an agent owns (`nohup`) -> what they started.
@@ -385,6 +390,7 @@ impl Model {
             orphans: Vec::new(),
             tcp: snapshot.tcp,
             listening: snapshot.listening,
+            cores: snapshot.cores,
             pty_glue: HashSet::new(),
             wrappers: HashMap::new(),
             detached: HashMap::new(),
@@ -498,9 +504,13 @@ impl Model {
                 let var = var.as_deref()?;
                 env(root_proc, var).or_else(|| env(tab_proc, var))
             };
-            let key = match host_def.and_then(|h| Some((h, marked(&h.tab_env)?))) {
+            let tab_id = match host_def.and_then(|h| Some((h, marked(&h.tab_env)?))) {
                 Some((h, id)) => format!("{}:{id}", h.id),
                 None => format!("pid:{tab_root}"),
+            };
+            let key = match host_def.and_then(|h| Some((h, marked(&h.label_env)?))) {
+                Some((h, name)) => format!("{}:{name}", h.id),
+                None => tab_id.clone(),
             };
             let label = host_def
                 .and_then(|h| marked(&h.label_env))
@@ -534,6 +544,7 @@ impl Model {
                 None => {
                     group.tabs.push(Tab {
                         key,
+                        tab_ids: Vec::new(),
                         label,
                         root_pids: Vec::new(),
                         sessions: Vec::new(),
@@ -541,6 +552,9 @@ impl Model {
                     group.tabs.last_mut().unwrap()
                 }
             };
+            if !tab.tab_ids.contains(&tab_id) {
+                tab.tab_ids.push(tab_id);
+            }
             if !tab.root_pids.contains(&tab_root) {
                 tab.root_pids.push(tab_root);
             }
@@ -694,11 +708,11 @@ impl Model {
         chain
     }
 
-    pub fn tab_label(&self, key: &str) -> Option<String> {
+    pub fn tab_label(&self, tab_id: &str) -> Option<String> {
         self.groups
             .iter()
             .flat_map(|g| &g.tabs)
-            .find(|t| t.key == key)
+            .find(|t| t.tab_ids.iter().any(|id| id == tab_id))
             .map(|t| t.label.clone())
     }
 
@@ -738,6 +752,12 @@ impl Model {
 
     pub fn cpu(&self, pids: &[u32]) -> f32 {
         pids.iter().filter_map(|p| self.procs.get(p)).map(|p| p.cpu).sum()
+    }
+
+    /// Percent of the whole machine's CPU, where `cpu` counts one logical CPU as 100. Snapshots
+    /// that do not say how many CPUs there were stay at `cpu`'s scale.
+    pub fn cpu_share(&self, pids: &[u32]) -> f32 {
+        self.cpu(pids) / self.cores.max(1) as f32
     }
 
     pub fn tab_pids(&self, tab: &Tab) -> Vec<u32> {

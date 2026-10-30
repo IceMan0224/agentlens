@@ -124,7 +124,7 @@ Every second agentlens lists all processes through each OS's own interface
 (`NtQuerySystemInformation` on Windows, `sysctl`/libproc on macOS, `/proc` on Linux) and builds a
 tree. Agents, hosts, shells and runtimes are recognized from the catalog. Each agent process
 without an agent ancestor roots a session. The nearest host above it, and the host's tab
-variables, place it in a tab.
+variables, place it in a tab. Orca tabs of one worktree share a row.
 
 A process counts as a leftover in either of these cases:
 
