@@ -102,6 +102,10 @@ pub struct Model {
     pub listening: Vec<Listener>,
     /// Pseudo-console glue processes, not worth a row of their own.
     pub pty_glue: HashSet<u32>,
+    /// Launchers that only started something an agent owns (`nohup`) -> what they started.
+    pub wrappers: HashMap<u32, u32>,
+    /// Session root -> trees it started that left its process tree. Set by `Origins::attach`.
+    pub detached: HashMap<u32, Vec<u32>>,
 }
 
 pub fn stem(p: &ProcInfo) -> String {
@@ -125,6 +129,19 @@ fn exe_norm(p: &ProcInfo) -> String {
 
 fn cmd_norm(p: &ProcInfo) -> String {
     normalize(&p.cmd.join(" "))
+}
+
+/// A launcher starts its program at once; anything slower is a program in its own right.
+const WRAPPER_START_SECS: u64 = 5;
+
+/// The process carries what agents write into the environment of everything they start.
+fn agent_marked(c: &Catalog, p: &ProcInfo) -> bool {
+    let keys = c
+        .agents
+        .iter()
+        .flat_map(|a| a.pid_env.iter().chain(&a.session_env))
+        .chain(&c.processes.agent_env);
+    keys.into_iter().any(|k| env(p, k).is_some())
 }
 
 fn has(list: &[String], name: &str) -> bool {
@@ -369,6 +386,8 @@ impl Model {
             tcp: snapshot.tcp,
             listening: snapshot.listening,
             pty_glue: HashSet::new(),
+            wrappers: HashMap::new(),
+            detached: HashMap::new(),
         };
         model.pty_glue = model
             .procs
@@ -574,9 +593,15 @@ impl Model {
             let runtimes = &catalog.processes.runtimes;
             let runs_runtime = subtree.iter().any(|q| has(runtimes, &stem(&model.procs[q])));
             let runtime_like = has(runtimes, &root_stem) || (is_shell && runs_runtime);
-            if agent_related || runtime_like {
+            let wrapped = model.wrapped(catalog, pid, &roles);
+            let marked = wrapped.is_some() || agent_marked(catalog, &model.procs[&pid]);
+            if let Some(child) = wrapped {
+                model.wrappers.insert(pid, child);
+            }
+            if agent_related || runtime_like || marked {
                 let in_tree = || subtree.iter().map(|q| &model.procs[q]);
-                let launched_by_agent = first_env(in_tree(), &launch_vars).is_some();
+                let launched_by_agent =
+                    first_env(in_tree(), &launch_vars).is_some() || in_tree().any(|q| agent_marked(catalog, q));
                 let origin = first_env(in_tree(), &tab_vars)
                     .and_then(|(host, id)| model.tab_label(&format!("{}:{id}", host.id)));
                 model.orphans.push(Orphan {
@@ -604,6 +629,22 @@ impl Model {
         }
     }
 
+    /// What `pid` started, when all it did was start one program an agent owns: it has no
+    /// marks of its own and nothing else to do. Such a launcher can be anything (`nohup`,
+    /// `setsid`), so it is told apart by what it does, not by its name.
+    fn wrapped(&self, catalog: &Catalog, pid: u32, roles: &HashMap<u32, Role>) -> Option<u32> {
+        let p = &self.procs[&pid];
+        if roles[&pid] != Role::Other || agent_marked(catalog, p) {
+            return None;
+        }
+        let mut kids = self.children.get(&pid)?.iter().filter(|c| !self.pty_glue.contains(c));
+        let (child, None) = (*kids.next()?, kids.next()) else {
+            return None;
+        };
+        let c = &self.procs[&child];
+        (agent_marked(catalog, c) && c.start_time.saturating_sub(p.start_time) <= WRAPPER_START_SECS).then_some(child)
+    }
+
     /// An agent, a REPL, a process carrying an agent's or host's traces, or an MCP server.
     fn is_agent_component(&self, catalog: &Catalog, pid: &u32, roles: &HashMap<u32, Role>) -> bool {
         let p = &self.procs[pid];
@@ -623,10 +664,17 @@ impl Model {
     /// The (group, tab, session) indices of the session that contains `pid`.
     pub fn locate(&self, pid: u32) -> Option<(usize, usize, usize)> {
         let lineage: Vec<u32> = std::iter::once(pid).chain(self.ancestors(pid)).collect();
+        let owns = |root: &u32| {
+            lineage.contains(root)
+                || self
+                    .detached
+                    .get(root)
+                    .is_some_and(|tops| tops.iter().any(|t| lineage.contains(t)))
+        };
         for (gi, g) in self.groups.iter().enumerate() {
             for (ti, t) in g.tabs.iter().enumerate() {
                 for (si, s) in t.sessions.iter().enumerate() {
-                    if lineage.contains(&s.root_pid) {
+                    if owns(&s.root_pid) {
                         return Some((gi, ti, si));
                     }
                 }
@@ -667,6 +715,20 @@ impl Model {
         out
     }
 
+    /// A session's processes, with what it started that left its process tree.
+    pub fn session_pids(&self, root: u32) -> Vec<u32> {
+        let tops = self.detached.get(&root).into_iter().flatten();
+        std::iter::once(&root)
+            .chain(tops)
+            .flat_map(|p| self.subtree(*p))
+            .collect()
+    }
+
+    /// Roots of the trees that left a running session's process tree.
+    pub fn is_detached(&self, pid: u32) -> bool {
+        self.detached.values().flatten().any(|p| *p == pid)
+    }
+
     pub fn private_bytes(&self, pids: &[u32]) -> u64 {
         pids.iter()
             .filter_map(|p| self.procs.get(p))
@@ -679,7 +741,10 @@ impl Model {
     }
 
     pub fn tab_pids(&self, tab: &Tab) -> Vec<u32> {
-        tab.sessions.iter().flat_map(|s| self.subtree(s.root_pid)).collect()
+        tab.sessions
+            .iter()
+            .flat_map(|s| self.session_pids(s.root_pid))
+            .collect()
     }
 
     pub fn group_private(&self, group: &Group) -> u64 {

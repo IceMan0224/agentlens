@@ -8,7 +8,7 @@ use std::time::Duration;
 use agentlens_core::actions::{self, KillPlan, Outcome};
 use agentlens_core::catalog::Catalog;
 use agentlens_core::health::{
-    Candidate, CandidateKind, History, SessionState, candidates, fmt_duration, session_state, short_cmd,
+    Candidate, CandidateKind, History, SessionState, candidates, fmt_duration, session_state, short_cmd, tree_label,
 };
 use agentlens_core::hooks::{self, HookState};
 use agentlens_core::install;
@@ -290,9 +290,10 @@ impl App {
     }
 
     pub fn apply(&mut self, snapshot: Snapshot) {
-        let model = Model::build(snapshot, &self.catalog);
+        let mut model = Model::build(snapshot, &self.catalog);
         self.history.update(&model);
         self.origins.update(&model, &self.catalog);
+        self.origins.attach(&mut model);
         if !self.replay {
             let closed = self.stdio.update(&model);
             self.origins.note_stdio_closed(&model, &closed);
@@ -398,9 +399,11 @@ impl App {
             ]
         };
 
-        if !m.orphans.is_empty() {
+        // What left a running session's tree is listed under that session.
+        let orphans: Vec<_> = m.orphans.iter().filter(|o| !m.is_detached(o.pid)).collect();
+        if !orphans.is_empty() {
             let header = Item::OrphanHeader;
-            let all: Vec<u32> = m.orphans.iter().flat_map(|o| m.subtree(o.pid)).collect();
+            let all: Vec<u32> = orphans.iter().flat_map(|o| m.subtree(o.pid)).collect();
             let mut cells = vec![
                 Cell::from(fold(
                     self.is_open(&header),
@@ -418,7 +421,7 @@ impl App {
             let open = self.is_open(&header);
             items.push(header);
             if open {
-                for o in &m.orphans {
+                for o in orphans {
                     let item = Item::Orphan(o.pid);
                     let tree = m.subtree(o.pid);
                     let p = &m.procs[&o.pid];
@@ -432,7 +435,7 @@ impl App {
                         Cell::from(o.pid.to_string()),
                     ];
                     cells.extend(stats(&tree, Some(self.idle(m, &tree))));
-                    cells.push(Cell::from(format!("{note} · {}", short_cmd(p))));
+                    cells.push(Cell::from(format!("{note} · {}", tree_label(m, o.pid))));
                     rows.push(Row::new(cells));
                     let open = self.is_open(&item);
                     items.push(item);
@@ -494,10 +497,11 @@ impl App {
                     continue;
                 }
                 let mut sessions: Vec<_> = t.sessions.iter().collect();
-                sessions.sort_by_key(|s| self.sort_key(m, &m.subtree(s.root_pid)));
+                sessions.sort_by_key(|s| self.sort_key(m, &m.session_pids(s.root_pid)));
                 for s in sessions {
                     let item = Item::Session(s.root_pid);
-                    let tree = m.subtree(s.root_pid);
+                    let tree = m.session_pids(s.root_pid);
+                    let detached = m.detached.get(&s.root_pid).map(Vec::as_slice).unwrap_or_default();
                     let provider = s.provider.as_deref().map(|p| format!(" ({p})")).unwrap_or_default();
                     let name = format!(
                         "    {}",
@@ -511,7 +515,7 @@ impl App {
                         Some(state) => hook_cell(lang, *state),
                         None => state_cell(lang, session_state(m, &self.history, &tree, self.rules.idle_minutes)),
                     };
-                    let sid = s
+                    let mut sid = s
                         .session_id
                         .as_deref()
                         .map(|id| {
@@ -519,12 +523,34 @@ impl App {
                             tf!(lang, "session {id}", "세션 {id}")
                         })
                         .unwrap_or_default();
+                    if !detached.is_empty() {
+                        let n = detached.len();
+                        let note = tf!(lang, "{n} detached", "분리됨 {n}개");
+                        sid = if sid.is_empty() {
+                            note
+                        } else {
+                            format!("{sid} · {note}")
+                        };
+                    }
                     cells.push(Cell::from(sid));
                     rows.push(Row::new(cells).style(Style::new().fg(GREEN)));
                     let open = self.is_open(&item);
                     items.push(item);
                     if open {
                         push_procs(m, s.root_pid, 3, &mut rows, &mut items);
+                        for pid in detached {
+                            let tree = m.subtree(*pid);
+                            let mut cells = vec![
+                                Cell::from(format!("{}{} ", "  ".repeat(4), m.procs[pid].name)),
+                                Cell::from(pid.to_string()),
+                            ];
+                            cells.extend(stats(&tree, Some(self.idle(m, &tree))));
+                            let note = tf!(lang, "detached", "분리됨");
+                            cells.push(Cell::from(format!("{note} · {}", tree_label(m, *pid))));
+                            rows.push(Row::new(cells));
+                            items.push(Item::Proc(*pid));
+                            push_procs(m, *pid, 4, &mut rows, &mut items);
+                        }
                     }
                 }
             }

@@ -49,11 +49,12 @@ fn main() -> anyhow::Result<()> {
                 Some(path) => serde_json::from_str(&std::fs::read_to_string(path)?)?,
                 None => live_snapshot(&catalog)?,
             };
-            let model = Model::build(snapshot, &catalog);
+            let mut model = Model::build(snapshot, &catalog);
             let mut history = History::default();
             history.update(&model);
             let mut origins = Origins::default();
             origins.update(&model, &catalog);
+            origins.attach(&mut model);
             // Pipes can only be checked on processes that are running now.
             if args.get(1).is_none() {
                 let mut probe = StdioProbe::default();

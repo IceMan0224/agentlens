@@ -40,8 +40,9 @@ pub struct Origins {
     gone_since: HashMap<ProcKey, u64>,
     /// Owner gone as of the last update, by PID.
     gone: HashMap<u32, OwnerGone>,
-    /// Outside any running session, but its owner is known to be alive (moved out on purpose).
-    owned: HashSet<u32>,
+    /// Outside any running session, but its owner is known to be alive (moved out on purpose):
+    /// process -> the root of the session that owns it.
+    owned: HashMap<u32, u32>,
     /// When each process was first seen with the pipe on its input closed (`stdio::StdioProbe`).
     stdio_since: HashMap<ProcKey, u64>,
 }
@@ -49,7 +50,8 @@ pub struct Origins {
 /// What a process's environment says about its owner.
 enum Birth {
     Gone(String),
-    Alive,
+    /// With the root of the owner's session.
+    Alive(u32),
     Unnamed,
 }
 
@@ -84,7 +86,7 @@ fn birth(
     catalog: &Catalog,
     p: &ProcInfo,
     agent: Option<&AgentDef>,
-    live_sessions: &HashSet<&str>,
+    live_sessions: &HashMap<&str, u32>,
 ) -> Birth {
     for a in agent.into_iter().chain(catalog.agents.iter()) {
         if let Some(pid) = a.pid_env.as_deref().and_then(|k| env(p, k)?.parse::<u32>().ok()) {
@@ -93,15 +95,16 @@ fn birth(
                 .get(&pid)
                 .is_some_and(|o| matches!(model.roles.get(&pid), Some(Role::Agent(_))) && o.start_time <= p.start_time);
             return if alive {
-                Birth::Alive
+                let is_agent = |a: &u32| matches!(model.roles.get(a), Some(Role::Agent(_)));
+                Birth::Alive(model.ancestors(pid).into_iter().rev().find(is_agent).unwrap_or(pid))
             } else {
                 Birth::Gone(format!("{} pid {pid}", a.name))
             };
         }
         if let Some(id) = a.session_env.as_deref().and_then(|k| env(p, k)) {
             let short: String = id.chars().take(8).collect();
-            return if live_sessions.contains(id) {
-                Birth::Alive
+            return if let Some(root) = live_sessions.get(id) {
+                Birth::Alive(*root)
             } else {
                 Birth::Gone(format!("{} session {short}", a.name))
             };
@@ -130,7 +133,7 @@ impl Origins {
 
         // Processes under a live agent have a live owner. Remember which session that is, and
         // which session ids are still in use.
-        let mut live_sessions: HashSet<&str> = HashSet::new();
+        let mut live_sessions: HashMap<&str, u32> = HashMap::new();
         let mut unowned: Vec<&ProcInfo> = Vec::new();
         for p in model.procs.values() {
             if matches!(roles.get(&p.pid), Some(Role::Agent(_) | Role::Host | Role::System))
@@ -143,7 +146,8 @@ impl Origins {
                 Some(&root) => {
                     let label = labels.get(&root).cloned().unwrap_or_else(|| agent_name(root));
                     self.seen.insert(key(p), (key(&model.procs[&root]), label));
-                    live_sessions.extend(catalog.agents.iter().filter_map(|a| env(p, a.session_env.as_deref()?)));
+                    let ids = catalog.agents.iter().filter_map(|a| env(p, a.session_env.as_deref()?));
+                    live_sessions.extend(ids.map(|id| (id, root)));
                 }
                 None => unowned.push(p),
             }
@@ -156,14 +160,14 @@ impl Origins {
             let origin = match self.seen.get(&key(p)) {
                 // Seen under a session that is still running: moved out on purpose (`nohup`).
                 Some((root, _)) if alive(model, *root) => {
-                    self.owned.insert(p.pid);
+                    self.owned.insert(p.pid, root.0);
                     continue;
                 }
                 Some((_, label)) => label.clone(),
                 None => match birth(model, catalog, p, agent, &live_sessions) {
                     Birth::Gone(origin) => origin,
-                    Birth::Alive => {
-                        self.owned.insert(p.pid);
+                    Birth::Alive(root) => {
+                        self.owned.insert(p.pid, root);
                         continue;
                     }
                     Birth::Unnamed => continue,
@@ -180,6 +184,29 @@ impl Origins {
         self.gone = gone;
     }
 
+    /// Puts what left a live session's process tree back in that session: the topmost process
+    /// of each such tree, or the orphan it runs under (a launcher, a shell). Programs a host runs (an editor
+    /// opened from an agent) inherit the marks but are the host's.
+    pub fn attach(&self, model: &mut Model) {
+        let listed: HashSet<u32> = model.orphans.iter().map(|o| o.pid).collect();
+        let mut detached: HashMap<u32, Vec<u32>> = HashMap::new();
+        for (&pid, &owner) in &self.owned {
+            let chain = model.ancestors(pid);
+            if chain.first().is_some_and(|pp| self.owned.contains_key(pp))
+                || chain.iter().any(|a| model.roles.get(a) == Some(&Role::Host))
+            {
+                continue;
+            }
+            let tops = detached.entry(owner).or_default();
+            tops.push(*chain.last().filter(|t| listed.contains(*t)).unwrap_or(&pid));
+        }
+        for tops in detached.values_mut() {
+            tops.sort_unstable();
+            tops.dedup();
+        }
+        model.detached = detached;
+    }
+
     /// Records which processes have lost the writer of their input pipe.
     pub fn note_stdio_closed(&mut self, model: &Model, closed: &HashSet<ProcKey>) {
         self.stdio_since.retain(|k, _| closed.contains(k));
@@ -191,7 +218,7 @@ impl Origins {
     /// Nobody has been able to write to the process's input for at least `grace` seconds, and
     /// its owner is not known to be alive.
     pub fn stdio_closed(&self, model: &Model, pid: u32, grace: u64) -> bool {
-        !self.owned.contains(&pid)
+        !self.owned.contains_key(&pid)
             && model.procs.get(&pid).is_some_and(|p| {
                 self.stdio_since
                     .get(&key(p))
@@ -205,7 +232,7 @@ impl Origins {
             .stdio_since
             .iter()
             .filter(|(k, since)| {
-                alive(model, **k) && !self.owned.contains(&k.0) && model.taken_at.saturating_sub(**since) >= grace
+                alive(model, **k) && !self.owned.contains_key(&k.0) && model.taken_at.saturating_sub(**since) >= grace
             })
             .map(|(k, _)| k.0)
             .collect();
