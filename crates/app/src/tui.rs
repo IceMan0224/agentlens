@@ -191,6 +191,7 @@ pub struct App {
     auto_cleanup_result: Option<(u64, String)>,
     confirm: Option<Confirm>,
     detail: bool,
+    /// Outcome of the last key press, shown instead of the key hints until the next one.
     status: String,
     items: Vec<Item>,
     table_area: Rect,
@@ -209,12 +210,6 @@ pub struct App {
 impl App {
     pub fn new(rules: Rules, installed: Vec<(String, String)>) -> Self {
         let catalog = Catalog::builtin().with_rules(&rules).with_installed(&installed);
-        let status = t(
-            rules.language,
-            "q quit · ←→ fold · k end tree · enter details · s sort · 1-6 views",
-            "q 종료 · ←→ 접기 · k 트리 종료 · enter 상세 · s 정렬 · 1-6 화면",
-        )
-        .into();
         let ssh_config = net::load_ssh_config();
         Self {
             catalog,
@@ -248,7 +243,7 @@ impl App {
             auto_cleanup_result: None,
             confirm: None,
             detail: false,
-            status,
+            status: String::new(),
             items: Vec::new(),
             table_area: Rect::default(),
             tabs_area: Rect::default(),
@@ -267,12 +262,6 @@ impl App {
         self.replay = true;
         self.ssh_config = Vec::new();
         self.ssh_keys = SshInventory::default();
-        self.status = t(
-            self.lang(),
-            "replay of a saved snapshot: read-only · q quit · 1-6 views",
-            "저장된 스냅샷 재생: 읽기 전용 · q 종료 · 1-6 화면",
-        )
-        .into();
         self
     }
 
@@ -330,14 +319,12 @@ impl App {
         }
 
         // Pre-mark candidates when they are first proposed, which can be after they first show
-        // up (an owner gone long enough), and announce them; keep the user's choices otherwise.
-        let mut fresh = Vec::new();
+        // up (an owner gone long enough); keep the user's choices otherwise.
         for c in &self.candidates {
             if c.eligible && self.proposed.insert(c.root_pid) {
                 // Automatic cleanup's grace counts from here.
                 self.seen_candidates.insert(c.root_pid, model.taken_at);
                 self.marked.insert(c.root_pid);
-                fresh.push(format!("{} ({})", c.label, mb(c.private_bytes)));
             } else {
                 self.seen_candidates.entry(c.root_pid).or_insert(model.taken_at);
             }
@@ -346,10 +333,6 @@ impl App {
         self.marked.retain(|p| alive.contains(p));
         self.proposed.retain(|p| alive.contains(p));
         self.seen_candidates.retain(|p, _| alive.contains(p));
-        if !fresh.is_empty() && self.model.is_some() {
-            let fresh = fresh.join(", ");
-            self.status = tf!(self.lang(), "new cleanup candidate: {fresh}", "새 정리 후보: {fresh}");
-        }
         self.model = Some(model);
         self.auto_cleanup();
     }
@@ -393,7 +376,7 @@ impl App {
             vec![
                 Cell::from(pids.len().to_string()),
                 Cell::from(mb(m.private_bytes(pids))),
-                Cell::from(format!("{:.1}", m.cpu(pids))),
+                Cell::from(format!("{:.1}", m.cpu_share(pids))),
                 Cell::from(idle.map(fmt_duration).unwrap_or_default()),
                 Cell::from(""),
             ]
@@ -489,7 +472,8 @@ impl App {
                     Cell::from(""),
                 ];
                 cells.extend(stats(&pids, Some(self.idle(m, &pids))));
-                cells.push(Cell::from(format!("{} · {}", agents.join(", "), short_key(&t.key))));
+                let ids: Vec<String> = t.tab_ids.iter().map(|id| short_key(id)).collect();
+                cells.push(Cell::from(format!("{} · {}", agents.join(", "), ids.join(", "))));
                 rows.push(Row::new(cells).style(Style::new().bold()));
                 let open = self.is_open(&item);
                 items.push(item);
@@ -835,8 +819,8 @@ impl App {
                         tf!(lang, "{} min", "{}분", r.idle_minutes),
                         t(
                             lang,
-                            "A session whose processes stay under 1% CPU this long is idle",
-                            "세션 프로세스가 이 시간 동안 CPU 1% 미만이면 유휴",
+                            "A session whose processes stay under 1% of one CPU core this long is idle",
+                            "세션 프로세스가 이 시간 동안 코어 하나의 1% 미만이면 유휴",
                         ),
                     ),
                     Setting::EndWindowed => (
@@ -942,7 +926,12 @@ impl App {
         if let Some(area) = detail_area {
             frame.render_widget(self.detail_text(), area);
         }
-        frame.render_widget(Paragraph::new(self.status.clone()).style(Style::new().dim()), bottom);
+        let footer = if self.status.is_empty() {
+            self.key_hints()
+        } else {
+            self.status.clone()
+        };
+        frame.render_widget(Paragraph::new(footer).style(Style::new().fg(CYAN)), bottom);
         if self.confirm.is_some() {
             self.draw_confirm(frame);
         }
@@ -951,6 +940,43 @@ impl App {
                 cell.fg = Color::Reset;
                 cell.bg = Color::Reset;
             }
+        }
+    }
+
+    /// The keys of the current view, most specific first so a narrow window cuts the common ones.
+    fn key_hints(&self) -> String {
+        let lang = self.lang();
+        let view = match self.view {
+            View::Sessions => t(
+                lang,
+                "←→ fold · enter details · k/x/del end tree · h register host · s sort",
+                "←→ 접기 · enter 상세 · k/x/del 트리 종료 · h 호스트 등록 · s 정렬",
+            ),
+            View::Cleanup => t(
+                lang,
+                "space mark · x/enter end marked",
+                "space 표시 · x/enter 표시한 항목 종료",
+            ),
+            View::Network => t(lang, "d/enter disconnect", "d/enter 연결 끊기"),
+            View::Ports if self.all_ports => t(
+                lang,
+                "k/x/del end owner · a agents' only",
+                "k/x/del 주인 종료 · a 에이전트 관련만",
+            ),
+            View::Ports => t(lang, "k/x/del end owner · a all", "k/x/del 주인 종료 · a 전체 보기"),
+            View::Settings => t(lang, "←→/enter change", "←→/enter 변경"),
+            View::Rules => t(
+                lang,
+                "↑↓ scroll · e edit · r reload",
+                "↑↓ 스크롤 · e 편집 · r 다시 읽기",
+            ),
+        };
+        let common = t(lang, "1-6 views · q quit", "1-6 화면 · q 종료");
+        if self.replay {
+            let replay = t(lang, "replay: read-only", "재생 중: 읽기 전용");
+            format!("{replay} · {common}")
+        } else {
+            format!("{view} · {common}")
         }
     }
 
@@ -1021,11 +1047,7 @@ impl App {
                     Constraint::Fill(2),
                 ],
                 self.session_rows(),
-                t(
-                    lang,
-                    "Sessions by host / tab · k/x/del end the selected tree · enter details",
-                    "호스트/탭별 세션 · k/x/del 선택한 트리 종료 · enter 상세",
-                ),
+                t(lang, "Sessions by host / tab", "호스트/탭별 세션"),
             ),
             View::Cleanup => (
                 vec![
@@ -1045,11 +1067,7 @@ impl App {
                     Constraint::Fill(3),
                 ],
                 self.cleanup_rows(),
-                t(
-                    lang,
-                    "Cleanup · space mark · x end marked (yellow = proposed)",
-                    "정리 · space 표시 · x 표시한 항목 종료 (노란색 = 기본 제안)",
-                ),
+                t(lang, "Cleanup (yellow = proposed)", "정리 (노란색 = 기본 제안)"),
             ),
             View::Network => (
                 vec![
@@ -1069,7 +1087,7 @@ impl App {
                     Constraint::Fill(2),
                 ],
                 self.network_rows(),
-                t(lang, "SSH connections · d disconnect", "SSH 연결 · d 연결 끊기"),
+                t(lang, "SSH connections", "SSH 연결"),
             ),
             View::Ports => (
                 vec![
@@ -1090,16 +1108,12 @@ impl App {
                 ],
                 self.port_rows(),
                 if self.all_ports {
-                    t(
-                        lang,
-                        "Listening ports: all · k/x/del end the owner · a agents' only",
-                        "열린 포트: 전체 · k/x/del 주인 종료 · a 에이전트 관련만",
-                    )
+                    t(lang, "Listening ports: all", "열린 포트: 전체")
                 } else {
                     t(
                         lang,
-                        "Listening ports of agents and orphans (yellow) · k/x/del end the owner · a all",
-                        "에이전트·고아(노란색)가 연 포트 · k/x/del 주인 종료 · a 전체 보기",
+                        "Listening ports of agents and orphans (yellow)",
+                        "에이전트·고아(노란색)가 연 포트",
                     )
                 },
             ),
@@ -1111,11 +1125,7 @@ impl App {
                 ],
                 vec![Constraint::Length(30), Constraint::Length(18), Constraint::Fill(1)],
                 self.settings_rows(),
-                t(
-                    lang,
-                    "Settings · ←/→ enter change · saved to the rules file",
-                    "설정 · ←/→ enter 변경 · 규칙 파일에 저장",
-                ),
+                t(lang, "Settings (saved to the rules file)", "설정 (규칙 파일에 저장)"),
             ),
             View::Rules => unreachable!(),
         };
@@ -1230,11 +1240,7 @@ impl App {
         let lines = self.rules_lines();
         let v = self.view_index();
         self.selected[v] = self.selected[v].min(lines.len().saturating_sub(1));
-        let title = t(
-            self.lang(),
-            "Rules · ↑↓ scroll · e edit · r reload",
-            "규칙 · ↑↓ 스크롤 · e 편집 · r 다시 읽기",
-        );
+        let title = t(self.lang(), "Rules", "규칙");
         let text = Paragraph::new(lines)
             .wrap(Wrap { trim: false })
             .scroll((self.selected[v] as u16, 0))
@@ -1594,6 +1600,7 @@ impl App {
     }
 
     fn on_key(&mut self, k: KeyEvent) {
+        self.status.clear();
         if let Some(c) = &self.confirm {
             // Only `y` confirms: Enter also opens this dialog, so a double-tap or a repeating
             // Enter would end processes nobody confirmed.
@@ -1957,13 +1964,11 @@ impl App {
             let (trees, freed) = (roots.len(), mb(plan.private_bytes));
             let summary = summarize(lang, &actions::execute(&plan));
             self.refresh_now = true;
-            let result = tf!(
+            tf!(
                 lang,
                 "{trees} tree(s), ~{freed}, {refused} refused: {summary}",
                 "트리 {trees}개, 약 {freed}, 거부 {refused}: {summary}"
-            );
-            self.status = tf!(lang, "automatic cleanup: {result}", "자동 정리: {result}");
-            result
+            )
         };
         self.auto_cleanup_result = Some((now, result));
     }
@@ -2245,7 +2250,7 @@ fn push_procs(m: &Model, root: u32, indent: usize, rows: &mut Vec<Row<'static>>,
                 Cell::from(pid.to_string()),
                 Cell::from(role_label(m, pid)),
                 Cell::from(mb(p.private_bytes)),
-                Cell::from(format!("{:.1}", p.cpu)),
+                Cell::from(format!("{:.1}", m.cpu_share(&[pid]))),
                 Cell::from(""),
                 Cell::from(""),
                 Cell::from(short_cmd(p)),
@@ -2755,7 +2760,7 @@ mod tests {
         let tab = app
             .items
             .iter()
-            .position(|i| matches!(i, Item::Tab(k) if k.starts_with("orca:c1933913")))
+            .position(|i| matches!(i, Item::Tab(k) if k.starts_with("orca:89746be0")))
             .unwrap();
         app.selected[0] = tab;
         key(&mut app, KeyCode::Char('k'));
@@ -2764,7 +2769,7 @@ mod tests {
             .groups
             .iter()
             .flat_map(|g| &g.tabs)
-            .find(|t| t.key.starts_with("orca:c1933913"))
+            .find(|t| t.key.starts_with("orca:89746be0"))
             .unwrap()
             .root_pids[0];
         let confirm = app.confirm.as_ref().unwrap();
@@ -2934,7 +2939,7 @@ mod tests {
             .find(|c| c.root_pid == 4_100_000)
             .expect("proposed");
         assert!(c.eligible && app.marked.contains(&4_100_000), "{:?}", c.reasons);
-        assert!(app.status.contains("github-server"), "{}", app.status);
+        assert!(app.status.is_empty(), "proposals are not announced: {}", app.status);
         assert!(listed_early.contains(&4_100_001), "{listed_early:?}");
         let shell = app.candidates.iter().find(|c| c.root_pid == 4_100_001).unwrap();
         assert!(shell.eligible && app.marked.contains(&4_100_001), "{:?}", shell.reasons);

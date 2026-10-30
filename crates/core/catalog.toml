@@ -441,9 +441,9 @@ exe = ["jcode"]
 # system's app launchers (Start Menu shortcuts, `.desktop` files, macOS bundles), for a host
 # they do not know by its `exe` names.
 # `tab_env` names an environment variable the host sets per tab (sessions sharing a value
-# share a tab), `label_env` one whose value labels the tab (a `<id>::<path>` value is shown
-# by its path), `launch_env` one set on everything an agent launched, and `traces` paths in
-# the command lines of the host's agent tooling.
+# share a tab), `label_env` one whose value labels the tab and joins tabs sharing it into one
+# row (a `<id>::<path>` value is shown by its path), `launch_env` one set on everything an
+# agent launched, and `traces` paths in the command lines of the host's agent tooling.
 
 [[hosts]]
 id = "orca"

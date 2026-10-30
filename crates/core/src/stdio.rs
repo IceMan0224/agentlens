@@ -128,6 +128,7 @@ mod tests {
                     processes: vec![ping.clone()],
                     tcp: Vec::new(),
                     listening: Vec::new(),
+                    cores: 1,
                 },
                 &Catalog::builtin(),
             )

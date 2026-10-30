@@ -75,6 +75,7 @@ fn mac() -> Model {
             processes,
             tcp: Vec::new(),
             listening: Vec::new(),
+            cores: 1,
         },
         &Catalog::builtin(),
     )
@@ -143,6 +144,7 @@ fn build(processes: Vec<ProcInfo>) -> Model {
             processes,
             tcp: Vec::new(),
             listening: Vec::new(),
+            cores: 1,
         },
         &Catalog::builtin(),
     )
