@@ -52,6 +52,8 @@ behind from evidence rather than names, and ends them only when it is safe to.
   sockets, pipes), never from one host app's internals.
 - **Agents can tell you what they are doing.** Turn on agent hooks in Settings and Claude Code
   reports *waiting for input* and *needs you* (permission prompts). It never makes the agent wait.
+- **Agents can ask it, too.** Register its MCP server from Settings, and an agent can list what
+  ended sessions left behind and end it, under the same safety rules.
 - **Featherweight and native.** It uses about 9 MB of memory and 1–3% of one core while idle. It is
   written in Rust and calls each OS's own kernel interfaces.
 - **Data-driven.** Everything it knows about agents and hosts lives in
@@ -111,7 +113,7 @@ agentlens --replay snap.json       # browse a saved snapshot in the dashboard, r
 | 3 Network | SSH connections, keys, known hosts | `d` disconnect |
 | 4 Ports | Listening ports of sessions and leftovers | `k` end the owner, `a` all ports |
 | 5 Rules | How leftovers are found, catalog, rules file | `e` edit, `r` reload |
-| 6 Settings | Language, automatic cleanup, idle threshold, leftovers to keep, agent hooks | `←/→`/`enter` change |
+| 6 Settings | Language, automatic cleanup, idle threshold, leftovers to keep, agent hooks, agent MCP | `←/→`/`enter` change |
 
 Common keys: `1`–`6` or `tab` switch views, `s` sort (memory, CPU, idle), mouse wheel and
 clicks, `q` quit.
@@ -144,6 +146,27 @@ Switching on **Agent hooks** in Settings adds agentlens to the agent's own hook 
 up first. The agent then runs agentlens in the background on session start, prompt, stop,
 notification and session end; you never run anything yourself. Codex and Gemini CLI will follow
 once their hook formats and background execution are confirmed.
+
+### Agent MCP
+
+Switch on **Agent MCP** for an agent in Settings, and you can ask the agent "are there leftovers?"
+or "clean them up". Settings lists the agents used on this machine that take MCP servers
+(Claude Code, Codex, Gemini CLI, Qwen Code, opencode, Cursor, Copilot CLI, Kiro, Droid, Amp, Kimi, CodeBuddy, Qoder, Auggie, Kilo Code and Rovo Dev). agentlens adds `agentlens mcp` to
+the agent's user-level MCP settings, the same binary with nothing else to install. Other settings
+are kept and the file is backed up first; Claude Code, which rewrites its file all the time, is
+changed through its own `claude mcp add`.
+
+| Tool | What it does |
+|---|---|
+| `list_leftovers` | Cleanup candidates, the evidence for each, and which are proposed |
+| `list_session_processes` | The asking session's process tree, with memory, commands and listening ports |
+| `end_leftovers` | Ends the proposed candidates, or those named by pid. Nothing outside the candidate list, and never the asking session |
+
+The server only passes questions on. The dashboard, which has watched the sessions, decides and
+ends, with the same refusals and re-checks as when you end something yourself, so keep it
+running; without it the tools say so. They talk through small files in agentlens's state folder
+(`%LOCALAPPDATA%\agentlens\requests`, `~/.local/state/agentlens/requests`), so no port is opened.
+The agent still asks you before ending anything unless you allow the tool.
 
 ## Configuration
 

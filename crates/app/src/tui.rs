@@ -12,6 +12,7 @@ use agentlens_core::health::{
 };
 use agentlens_core::hooks::{self, HookState};
 use agentlens_core::keys::{self, KeyInfo, SshInventory};
+use agentlens_core::mcp::{self, McpState, inbox};
 use agentlens_core::model::{Group, GroupKind, Model, Role, short_path};
 use agentlens_core::net::{self, Port, PortOwner, SshConn, SshHost};
 use agentlens_core::origin::Origins;
@@ -28,6 +29,7 @@ use ratatui::{DefaultTerminal, Frame};
 
 use crate::i18n::{phrase, t, tf};
 use crate::report::{mb, role_label};
+use crate::tools;
 
 /// In the order of `View`'s variants: a view's index is `view as usize`.
 const VIEWS: [View; 6] = [
@@ -79,9 +81,12 @@ enum Setting {
     EndShared,
     /// Registering agentlens in an agent's hooks, by index into `Catalog::agents`.
     Hooks(usize),
+    /// Registering agentlens's MCP server with an agent, by index into `Catalog::agents`.
+    Mcp(usize),
 }
 
-/// Fixed settings; one `Hooks` row per agent with hooks follows them.
+/// Fixed settings; one `Hooks` row per agent with hooks follows them, then one `Mcp` row per
+/// agent found on this machine that takes MCP servers.
 const SETTINGS: [Setting; 6] = [
     Setting::Language,
     Setting::AutoCleanup,
@@ -144,6 +149,10 @@ pub struct App {
     hook_states: HashMap<(u32, u64), HookState>,
     /// Agent id -> whether agentlens is in its hook settings, read when Settings opens.
     hooks_registered: HashMap<String, Result<bool, String>>,
+    /// Agents offered an MCP row (indices into `Catalog::agents`) and whether agentlens is
+    /// registered with each, read when Settings opens.
+    mcp_agents: Vec<usize>,
+    mcp_states: HashMap<String, Result<McpState, String>>,
     candidates: Vec<Candidate>,
     ssh: Vec<SshConn>,
     ports: Vec<Port>,
@@ -201,6 +210,8 @@ impl App {
             stdio: StdioProbe::default(),
             hook_states: HashMap::new(),
             hooks_registered: HashMap::new(),
+            mcp_agents: Vec::new(),
+            mcp_states: HashMap::new(),
             candidates: Vec::new(),
             ssh: Vec::new(),
             ports: Vec::new(),
@@ -645,7 +656,58 @@ impl App {
             .enumerate()
             .filter(|(_, a)| a.hooks.is_some())
             .map(|(i, _)| Setting::Hooks(i));
-        SETTINGS.into_iter().chain(hooks).collect()
+        let mcp = self.mcp_agents.iter().map(|&i| Setting::Mcp(i));
+        SETTINGS.into_iter().chain(hooks).chain(mcp).collect()
+    }
+
+    /// Finds the agents used on this machine that take MCP servers (installed, or with a
+    /// settings file), and whether agentlens is registered with each.
+    fn read_mcp_registered(&mut self) {
+        if self.replay {
+            return;
+        }
+        let Ok(exe) = std::env::current_exe() else { return };
+        let mut agents = Vec::new();
+        let mut states = HashMap::new();
+        for (i, a) in self.catalog.agents.iter().enumerate() {
+            let Some(def) = &a.mcp else { continue };
+            let state = mcp::state(def, &exe);
+            let used = self.installed.iter().any(|(id, _)| *id == a.id) || mcp::config_exists(def);
+            if used || !matches!(state, Ok(McpState::Off)) {
+                agents.push(i);
+                states.insert(a.id.clone(), state);
+            }
+        }
+        self.mcp_agents = agents;
+        self.mcp_states = states;
+    }
+
+    fn mcp_row(&self, lang: Language, agent: usize) -> Row<'static> {
+        let a = &self.catalog.agents[agent];
+        let value = match self.mcp_states.get(&a.id) {
+            Some(Ok(McpState::On)) => t(lang, "on", "켜짐").to_string(),
+            Some(Ok(McpState::Off)) | None => t(lang, "off", "꺼짐").to_string(),
+            Some(Ok(McpState::Outdated)) => t(lang, "moved", "경로 바뀜").to_string(),
+            Some(Err(e)) => tf!(lang, "error: {e}", "오류: {e}"),
+        };
+        let config = a.mcp.as_ref().map(|m| m.config.clone()).unwrap_or_default();
+        let about = match self.mcp_states.get(&a.id) {
+            Some(Ok(McpState::Outdated)) => tf!(
+                lang,
+                "Registered from another agentlens path; change to register this one ({config})",
+                "다른 경로의 agentlens로 등록돼 있음; 바꾸면 지금 경로로 다시 등록 ({config})"
+            ),
+            _ => tf!(
+                lang,
+                "Lets the agent ask agentlens about leftovers and end them while this dashboard runs ({config})",
+                "대시보드가 켜져 있는 동안 에이전트가 잔여 프로세스를 묻고 정리할 수 있게 함 ({config})"
+            ),
+        };
+        Row::new(vec![
+            Cell::from(tf!(lang, "Agent MCP: {}", "에이전트 MCP: {}", a.name)),
+            Cell::from(format!("‹ {value} ›")),
+            Cell::from(about),
+        ])
     }
 
     /// Reads, for each agent with hooks, whether agentlens is registered there.
@@ -688,6 +750,7 @@ impl App {
             .map(|s| {
                 let (name, value, about) = match s {
                     Setting::Hooks(i) => return self.hook_row(lang, *i),
+                    Setting::Mcp(i) => return self.mcp_row(lang, *i),
                     Setting::Language => (
                         t(lang, "Language", "언어"),
                         match r.language {
@@ -1438,6 +1501,7 @@ impl App {
     fn set_view(&mut self, i: usize) {
         if VIEWS[i] == View::Settings && self.view != View::Settings {
             self.read_hooks_registered();
+            self.read_mcp_registered();
         }
         if VIEWS[i] == View::Network && self.view != View::Network && !self.replay {
             self.ssh_config = net::load_ssh_config();
@@ -1696,32 +1760,79 @@ impl App {
         if self.read_only() {
             return;
         }
-        self.status = self.summarize(&actions::execute(&c.plan));
+        self.status = summarize(self.lang(), &actions::execute(&c.plan));
         self.refresh_now = true;
     }
 
-    fn summarize(&self, results: &[(actions::Target, Outcome)]) -> String {
-        let count = |want: fn(&Outcome) -> bool| results.iter().filter(|(_, o)| want(o)).count();
-        let killed = count(|o| *o == Outcome::Killed);
-        let gone = count(|o| *o == Outcome::AlreadyGone);
-        let replaced = count(|o| *o == Outcome::Replaced);
-        let failed: Vec<String> = results
-            .iter()
-            .filter_map(|(t, o)| match o {
-                Outcome::Failed(e) => Some(format!("{} {}: {}", t.name, t.pid, e.trim())),
-                _ => None,
-            })
-            .collect();
-        let n = failed.len();
-        let mut text = tf!(
-            self.lang(),
-            "ended {killed}, already gone {gone}, skipped (pid reused) {replaced}, failed {n}",
-            "종료 {killed}, 이미 종료됨 {gone}, 건너뜀(PID 재사용) {replaced}, 실패 {n}"
-        );
-        if let Some(first) = failed.first() {
-            text.push_str(&format!(" — {first}"));
+    /// Answers the questions agents sent through `agentlens mcp`; true when there were any.
+    pub fn answer_requests(&mut self) -> bool {
+        if self.replay {
+            return false;
         }
-        text
+        let Some(dir) = inbox::dir() else { return false };
+        let requests = inbox::take(&dir);
+        for (id, request) in &requests {
+            let reply = self.answer(request);
+            let _ = inbox::answer(&dir, id, &reply);
+        }
+        !requests.is_empty()
+    }
+
+    fn answer(&mut self, request: &inbox::Request) -> inbox::Reply {
+        let reply = |text: String, error: bool| inbox::Reply { text, error };
+        let Some(m) = self.model.as_ref() else {
+            return reply("The dashboard is still starting; try again in a moment.".into(), true);
+        };
+        match request.tool.as_str() {
+            "list_leftovers" => reply(tools::leftovers(m, &self.candidates), false),
+            "list_session_processes" => match tools::session_processes(m, request.caller) {
+                Ok(text) => reply(text, false),
+                Err(text) => reply(text, true),
+            },
+            "end_leftovers" => {
+                let pids: Option<Vec<u32>> = request.args.get("pids").and_then(|v| v.as_array()).map(|a| {
+                    a.iter()
+                        .filter_map(|p| p.as_u64().and_then(|p| u32::try_from(p).ok()))
+                        .collect()
+                });
+                let (roots, notes) = tools::end_roots(
+                    m,
+                    &self.catalog,
+                    &self.candidates,
+                    self.self_pid,
+                    request.caller,
+                    pids.as_deref(),
+                );
+                let notes = notes.iter().map(|n| format!("\n- {n}")).collect::<String>();
+                if roots.is_empty() {
+                    return reply(format!("Nothing ended.{notes}"), pids.is_some());
+                }
+                let lang = self.lang();
+                let asker = tools::session_of(m, request.caller)
+                    .map(|(_, label)| label)
+                    .unwrap_or_else(|| format!("pid {}", request.caller));
+                let plan = actions::plan(m, &roots);
+                let freed = mb(plan.private_bytes);
+                let results = actions::execute(&plan);
+                self.marked.retain(|p| !roots.contains(p));
+                self.refresh_now = true;
+                let summary = summarize(lang, &results);
+                self.status = tf!(
+                    lang,
+                    "agent request from {asker}: {summary}",
+                    "에이전트 요청({asker}): {summary}"
+                );
+                let trees = roots.len();
+                reply(
+                    format!(
+                        "{trees} tree(s), about {freed}: {}{notes}",
+                        summarize(Language::En, &results)
+                    ),
+                    false,
+                )
+            }
+            other => reply(format!("unknown tool {other}"), true),
+        }
     }
 
     /// Candidate roots automatic cleanup would end now, and how many it leaves for refusals.
@@ -1784,7 +1895,7 @@ impl App {
         } else {
             let plan = actions::plan(m, &roots);
             let (trees, freed) = (roots.len(), mb(plan.private_bytes));
-            let summary = self.summarize(&actions::execute(&plan));
+            let summary = summarize(lang, &actions::execute(&plan));
             self.refresh_now = true;
             let result = tf!(
                 lang,
@@ -1802,9 +1913,10 @@ impl App {
         let Some(setting) = self.settings().get(self.selected[View::Settings as usize]).copied() else {
             return;
         };
-        if let Setting::Hooks(i) = setting {
-            self.toggle_hooks(i);
-            return;
+        match setting {
+            Setting::Hooks(i) => return self.toggle_hooks(i),
+            Setting::Mcp(i) => return self.toggle_mcp(i),
+            _ => {}
         }
         let r = &mut self.rules;
         let (key, value) = match setting {
@@ -1840,7 +1952,7 @@ impl App {
                 r.end_shared = !r.end_shared;
                 ("end_shared", r.end_shared.to_string())
             }
-            Setting::Hooks(_) => unreachable!("handled above"),
+            Setting::Hooks(_) | Setting::Mcp(_) => unreachable!("handled above"),
         };
         // Starts the interval now, from the current snapshot.
         self.auto_cleanup();
@@ -1899,6 +2011,38 @@ impl App {
             Err(e) => tf!(lang, "hooks not changed: {e}", "훅을 바꾸지 못함: {e}"),
         };
         self.read_hooks_registered();
+    }
+
+    /// Adds or removes agentlens's MCP server in the agent's own settings; a server registered
+    /// from another path is replaced.
+    fn toggle_mcp(&mut self, agent: usize) {
+        if self.read_only() {
+            return;
+        }
+        let lang = self.lang();
+        let a = &self.catalog.agents[agent];
+        let Some(def) = a.mcp.clone() else { return };
+        let name = a.name.clone();
+        let on = !matches!(self.mcp_states.get(&a.id), Some(Ok(McpState::On)));
+        let result = std::env::current_exe()
+            .map_err(|e| e.to_string())
+            .and_then(|exe| mcp::set(&def, &exe, on));
+        self.status = match result {
+            Ok(path) if on => tf!(
+                lang,
+                "registered agentlens with {name} ({}); new sessions can ask it",
+                "{name}에 agentlens MCP를 등록함({}); 새 세션부터 물어볼 수 있음",
+                path.display()
+            ),
+            Ok(path) => tf!(
+                lang,
+                "removed agentlens from {name} ({})",
+                "{name}에서 agentlens MCP를 뺌({})",
+                path.display()
+            ),
+            Err(e) => tf!(lang, "MCP settings not changed: {e}", "MCP 설정을 바꾸지 못함: {e}"),
+        };
+        self.read_mcp_registered();
     }
 
     fn register_host(&mut self) {
@@ -1993,6 +2137,30 @@ impl App {
         self.new_env_keys = Some(self.catalog.env_keys());
         self.refresh_now = true;
     }
+}
+
+fn summarize(lang: Language, results: &[(actions::Target, Outcome)]) -> String {
+    let count = |want: fn(&Outcome) -> bool| results.iter().filter(|(_, o)| want(o)).count();
+    let killed = count(|o| *o == Outcome::Killed);
+    let gone = count(|o| *o == Outcome::AlreadyGone);
+    let replaced = count(|o| *o == Outcome::Replaced);
+    let failed: Vec<String> = results
+        .iter()
+        .filter_map(|(t, o)| match o {
+            Outcome::Failed(e) => Some(format!("{} {}: {}", t.name, t.pid, e.trim())),
+            _ => None,
+        })
+        .collect();
+    let n = failed.len();
+    let mut text = tf!(
+        lang,
+        "ended {killed}, already gone {gone}, skipped (pid reused) {replaced}, failed {n}",
+        "종료 {killed}, 이미 종료됨 {gone}, 건너뜀(PID 재사용) {replaced}, 실패 {n}"
+    );
+    if let Some(first) = failed.first() {
+        text.push_str(&format!(" — {first}"));
+    }
+    text
 }
 
 /// Rows for every process under `root` (excluding it), indented by depth.
@@ -2165,6 +2333,7 @@ fn event_loop(
                 }
             }
         }
+        dirty |= app.answer_requests();
         if let Some(keys) = app.new_env_keys.take() {
             let _ = wake.send(Wake::EnvKeys(keys));
         }
@@ -2641,6 +2810,23 @@ mod tests {
     }
 
     #[test]
+    fn agents_found_here_get_an_mcp_row() {
+        let mut app = app();
+        // Set by hand: reading them would look at this machine's agent settings.
+        let claude = app.catalog.agents.iter().position(|a| a.id == "claude").unwrap();
+        app.mcp_agents = vec![claude];
+        app.mcp_states.insert("claude".into(), Ok(McpState::Outdated));
+        app.view = View::Settings;
+        let s = screen(&mut app);
+        let row = s.lines().find(|l| l.contains("Agent MCP: Claude Code")).unwrap();
+        assert!(
+            row.contains("‹ moved ›") && row.contains("another agentlens path"),
+            "{row}"
+        );
+        assert!(app.settings().last() == Some(&Setting::Mcp(claude)));
+    }
+
+    #[test]
     fn replay_reads_and_changes_nothing_on_this_machine() {
         let snapshot: Snapshot = serde_json::from_str(include_str!("../../core/tests/fixtures/sample.json")).unwrap();
         let mut app = App::new(Rules::default(), Vec::new()).replaying();
@@ -2662,7 +2848,9 @@ mod tests {
         key(&mut app, KeyCode::Char('3'));
         assert_eq!(app.ssh_keys, SshInventory::default());
         key(&mut app, KeyCode::Char('6'));
-        assert!(app.hooks_registered.is_empty());
+        assert!(app.hooks_registered.is_empty() && app.mcp_agents.is_empty());
+        // Agents' questions are left for a dashboard that shows this machine.
+        assert!(!app.answer_requests());
         // Applied for this run, never saved to the rules file (the first setting is the language).
         key(&mut app, KeyCode::Right);
         assert!(app.status.contains("이번 실행에만"), "{}", app.status);
