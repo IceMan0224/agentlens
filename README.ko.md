@@ -61,7 +61,13 @@ agentlens는 모든 프로세스에 대해 **누구의 것인가, 그 주인이 
 
 화면은 지어낸 스냅샷을 재생(`--replay`)해 찍었으므로 실제 PC의 정보는 없습니다.
 
-## 빌드와 실행
+## 설치와 실행
+
+[최신 릴리스](https://github.com/IceMan0224/agentlens/releases/latest)에서 플랫폼에 맞는 압축 파일(Windows x64,
+Linux x64, macOS Apple silicon·Intel)을 받아 풀고 `agentlens`를 실행합니다. macOS에서 내려받은 바이너리를 처음
+실행할 때는 `xattr -d com.apple.quarantine agentlens`가 필요할 수 있습니다.
+
+직접 빌드하려면 [Rust](https://rustup.rs) 1.88 이상이 필요합니다.
 
 ```powershell
 cargo build --release
