@@ -1,6 +1,6 @@
 [package]
 name = "agentlens-core"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Process model behind agentlens: groups coding-agent processes by host, tab and session, and finds what ended sessions left behind"
