@@ -974,7 +974,7 @@ impl App {
         let common = t(lang, "1-6 views · q quit", "1-6 화면 · q 종료");
         if self.replay {
             let replay = t(lang, "replay: read-only", "재생 중: 읽기 전용");
-            format!("{replay} · {common}")
+            format!("{replay} · {view} · {common}")
         } else {
             format!("{view} · {common}")
         }
@@ -2773,7 +2773,12 @@ mod tests {
             .unwrap()
             .root_pids[0];
         let confirm = app.confirm.as_ref().unwrap();
-        assert_eq!(confirm.plan.targets.first().unwrap().pid, 33472);
+        for session in [33472, 17488] {
+            assert!(
+                confirm.plan.targets.iter().any(|t| t.pid == session),
+                "tabs of one worktree end together: {session}"
+            );
+        }
         assert!(
             confirm.plan.targets.iter().all(|t| t.pid != shell),
             "the tab's shell stays"

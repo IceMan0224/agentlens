@@ -55,6 +55,8 @@ agentlens는 모든 프로세스에 대해 **누구의 것인가, 그 주인이 
 
 ![세션 화면(한국어)](docs/images/sessions-ko.png)
 
+CPU%는 시스템 전체를 100으로 계산하고, 하단 줄에는 현재 화면의 단축키가 표시됩니다.
+
 | 정리: 후보와 판정 근거 | 포트: 누가 어디서 대기 중인지 |
 |---|---|
 | ![정리 화면](docs/images/cleanup.png) | ![포트 화면](docs/images/ports.png) |

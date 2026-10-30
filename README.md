@@ -61,7 +61,8 @@ behind from evidence rather than names, and ends them only when it is safe to.
 
 ## Screenshots
 
-**Sessions**: what each agent runs, grouped by host and tab, with memory, CPU and state.
+**Sessions**: what each agent runs, grouped by host and tab, with memory, CPU and state. CPU%
+counts the whole machine as 100, and the footer lists the keys of the current view.
 
 ![Sessions view](docs/images/sessions.png)
 
