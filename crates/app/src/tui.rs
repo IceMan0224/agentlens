@@ -21,6 +21,7 @@ use agentlens_core::snapshot::windowed_pids;
 use agentlens_core::stdio::StdioProbe;
 use agentlens_core::{Collector, Snapshot};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
+use crossterm::style::Colored;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
@@ -47,6 +48,16 @@ const IDLE_MINUTES: [u64; 5] = [10, 15, 30, 60, 120];
 /// Automatic cleanup leaves candidates alone until they have been seen this long, so a tree
 /// caught mid-exit or mid-restart is not ended.
 const AUTO_CLEANUP_GRACE_SECS: u64 = 60;
+
+// Catppuccin Mocha as RGB, with the background painted too, so the dashboard looks the same
+// whatever the terminal's own color theme is.
+const BASE: Style = Style::new()
+    .fg(Color::Rgb(0xcd, 0xd6, 0xf4))
+    .bg(Color::Rgb(0x1e, 0x1e, 0x2e));
+const YELLOW: Color = Color::Rgb(0xf9, 0xe2, 0xaf);
+const CYAN: Color = Color::Rgb(0x94, 0xe2, 0xd5);
+const GREEN: Color = Color::Rgb(0xa6, 0xe3, 0xa1);
+const RED: Color = Color::Rgb(0xf3, 0x8b, 0xa8);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum View {
@@ -187,6 +198,9 @@ pub struct App {
     new_env_keys: Option<Vec<String>>,
     /// Showing a saved snapshot: nothing on this machine is read, ended or changed.
     replay: bool,
+    /// `NO_COLOR` is set. crossterm then turns each color change into a bare `ESC[;m`, a full
+    /// reset that also clears reverse video, so no color may reach it.
+    no_color: bool,
 }
 
 impl App {
@@ -238,6 +252,7 @@ impl App {
             refresh_now: false,
             new_env_keys: None,
             replay: false,
+            no_color: false,
         }
     }
 
@@ -395,7 +410,7 @@ impl App {
                 "parent exited; see Cleanup, how it is judged in Rules",
                 "부모 종료됨 · 정리 화면 참고, 판정 원리는 규칙 화면",
             )));
-            rows.push(Row::new(cells).style(Style::new().fg(Color::Yellow).bold()));
+            rows.push(Row::new(cells).style(Style::new().fg(YELLOW).bold()));
             let open = self.is_open(&header);
             items.push(header);
             if open {
@@ -450,7 +465,7 @@ impl App {
                 info.push_str(t(lang, " · h: register as host", " · h: 호스트로 등록"));
             }
             cells.push(Cell::from(info));
-            rows.push(Row::new(cells).style(Style::new().fg(Color::Cyan).bold()));
+            rows.push(Row::new(cells).style(Style::new().fg(CYAN).bold()));
             let open = self.is_open(&item);
             items.push(item);
             if !open {
@@ -501,7 +516,7 @@ impl App {
                         })
                         .unwrap_or_default();
                     cells.push(Cell::from(sid));
-                    rows.push(Row::new(cells).style(Style::new().fg(Color::Green)));
+                    rows.push(Row::new(cells).style(Style::new().fg(GREEN)));
                     let open = self.is_open(&item);
                     items.push(item);
                     if open {
@@ -534,7 +549,7 @@ impl App {
                     CandidateKind::DuplicateMcp => t(lang, "dup mcp", "중복 MCP"),
                 };
                 let style = if c.eligible {
-                    Style::new().fg(Color::Yellow)
+                    Style::new().fg(YELLOW)
                 } else {
                     Style::new()
                 };
@@ -630,7 +645,7 @@ impl App {
                     t(lang, "local", "로컬")
                 };
                 let style = match p.owner {
-                    PortOwner::Orphan(_) => Style::new().fg(Color::Yellow),
+                    PortOwner::Orphan(_) => Style::new().fg(YELLOW),
                     _ if p.agent_internal => Style::new().dim(),
                     _ => Style::new(),
                 };
@@ -844,6 +859,7 @@ impl App {
     }
 
     pub fn draw(&mut self, frame: &mut Frame) {
+        frame.render_widget(Block::new().style(BASE), frame.area());
         let [top, body, bottom] =
             Layout::vertical([Constraint::Length(1), Constraint::Min(3), Constraint::Length(1)]).areas(frame.area());
         let titles = self.view_titles();
@@ -900,6 +916,12 @@ impl App {
         if self.confirm.is_some() {
             self.draw_confirm(frame);
         }
+        if self.no_color {
+            for cell in &mut frame.buffer_mut().content {
+                cell.fg = Color::Reset;
+                cell.bg = Color::Reset;
+            }
+        }
     }
 
     fn summary(&self) -> Line<'static> {
@@ -938,7 +960,7 @@ impl App {
             )),
             Span::styled(
                 tf!(lang, "cleanup {eligible}", "정리 가능 {eligible}"),
-                Style::new().fg(Color::Yellow),
+                Style::new().fg(YELLOW),
             ),
             Span::raw(tf!(lang, " · ssh {ssh} · sort {sort} ", " · SSH {ssh} · 정렬 {sort} ")),
         ])
@@ -1415,6 +1437,7 @@ impl App {
         let Some(c) = &self.confirm else { return };
         let area = popup(frame.area(), 72, 18);
         frame.render_widget(Clear, area);
+        frame.render_widget(Block::new().style(BASE), area);
         let mut lines = vec![Line::from(c.title.clone()).bold(), Line::from("")];
         for t in c.plan.targets.iter().take(10) {
             lines.push(Line::from(format!("  {} {}", t.name, t.pid)));
@@ -1431,13 +1454,13 @@ impl App {
             "전용 메모리 약 {freed} 확보 · 연결 {conns}개 끊김"
         )));
         if c.refusals.is_empty() {
-            lines.push(Line::from(t(lang, "y: end   n / esc: cancel", "y: 종료   n / esc: 취소")).fg(Color::Yellow));
+            lines.push(Line::from(t(lang, "y: end   n / esc: cancel", "y: 종료   n / esc: 취소")).fg(YELLOW));
         } else {
             for r in &c.refusals {
                 let r = phrase(lang, r);
-                lines.push(Line::from(tf!(lang, "refused: {r}", "거부: {r}")).fg(Color::Red));
+                lines.push(Line::from(tf!(lang, "refused: {r}", "거부: {r}")).fg(RED));
             }
-            lines.push(Line::from(t(lang, "esc: close", "esc: 닫기")).fg(Color::Yellow));
+            lines.push(Line::from(t(lang, "esc: close", "esc: 닫기")).fg(YELLOW));
         }
         let block = Block::bordered().title(t(lang, "Confirm", "확인"));
         frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
@@ -2173,7 +2196,7 @@ fn push_procs(m: &Model, root: u32, indent: usize, rows: &mut Vec<Row<'static>>,
         }
         let depth = m.ancestors(pid).len() - root_depth;
         let style = match m.roles.get(&pid) {
-            Some(Role::Agent(_)) => Style::new().fg(Color::Green),
+            Some(Role::Agent(_)) => Style::new().fg(GREEN),
             _ => Style::new(),
         };
         rows.push(
@@ -2314,6 +2337,7 @@ fn event_loop(
     snaps: &mpsc::Receiver<Snapshot>,
     wake: &mpsc::Sender<Wake>,
 ) -> anyhow::Result<()> {
+    app.no_color = Colored::ansi_color_disabled();
     let mut dirty = true;
     while !app.quit {
         while let Ok(snapshot) = snaps.try_recv() {
@@ -2391,6 +2415,34 @@ mod tests {
         key(&mut app, KeyCode::Char('6'));
         let s = screen(&mut app);
         assert!(s.contains("automatic cleanup is off"), "{s}");
+    }
+
+    #[test]
+    fn paints_its_own_colors_over_the_terminal_theme() {
+        let mut app = app();
+        let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
+        for view in ['1', '2', '3', '4', '5', '6'] {
+            key(&mut app, KeyCode::Char(view));
+            terminal.draw(|f| app.draw(f)).unwrap();
+            let buf = terminal.backend().buffer();
+            assert!(
+                buf.content
+                    .iter()
+                    .all(|c| c.bg == BASE.bg.unwrap() && c.fg != Color::Reset),
+                "view {view} leaves a cell to the terminal's theme"
+            );
+        }
+    }
+
+    #[test]
+    fn no_color_sends_no_color_and_keeps_the_selection_reversed() {
+        let mut app = app();
+        app.no_color = true;
+        let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let buf = terminal.backend().buffer();
+        assert!(buf.content.iter().all(|c| c.fg == Color::Reset && c.bg == Color::Reset));
+        assert!(buf.content.iter().any(|c| c.modifier.contains(Modifier::REVERSED)));
     }
 
     fn korean_app() -> App {
