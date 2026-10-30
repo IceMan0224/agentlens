@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agentlens"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "agentlens-core",
  "anyhow",
@@ -15,7 +15,7 @@ dependencies = [
 
 [[package]]
 name = "agentlens-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64",
  "libc",
