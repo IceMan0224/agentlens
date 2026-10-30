@@ -34,7 +34,7 @@ fn groups_sessions_by_host_and_orca_tab() {
         .iter()
         .find(|g| g.kind == GroupKind::Known("orca".into()))
         .unwrap();
-    assert_eq!(orca.tabs.len(), 11);
+    assert_eq!(orca.tabs.len(), 10, "two tabs share a worktree");
     assert_eq!(orca.host_pids.len(), 8);
     assert_eq!(session_count(&m, "orca", "claude"), 5);
     assert_eq!(session_count(&m, "orca", "codex"), 4);
@@ -43,9 +43,10 @@ fn groups_sessions_by_host_and_orca_tab() {
     assert!(orca.tabs.iter().all(|t| t.key.starts_with("orca:")));
 
     let tab = orca.tabs.iter().find(|t| t.label == "acme/web-app").unwrap();
-    assert_eq!(tab.sessions[0].root_pid, 33472);
+    assert_eq!(tab.sessions.len(), 2, "two tabs of one worktree");
+    let session = tab.sessions.iter().find(|s| s.root_pid == 33472).unwrap();
     assert_eq!(
-        tab.sessions[0].session_id.as_deref(),
+        session.session_id.as_deref(),
         Some("849478ea-950d-559b-8007-9eea0990a450")
     );
 }

@@ -1,5 +1,6 @@
 {
  "taken_at": 1800000000,
+ "cores": 8,
  "processes": [
   {
    "pid": 4,
@@ -598,7 +599,7 @@
     "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
     "-NoLogo"
    ],
-   "cwd": "C:\\work\\acme\\mobile",
+   "cwd": "C:\\work\\acme\\web-app",
    "env": [
     [
      "ORCA_TAB_ID",
@@ -606,7 +607,7 @@
     ],
     [
      "ORCA_WORKTREE_ID",
-     "aec1e42b-3031-59fa-b5b4-15084564b597::C:\\work\\acme\\mobile"
+     "89746be0-39e1-5bfb-90ff-e04002cad4aa::C:\\work\\acme\\web-app"
     ],
     [
      "ORCA_TERMINAL_HANDLE",
@@ -635,7 +636,7 @@
     ],
     [
      "ORCA_WORKTREE_ID",
-     "aec1e42b-3031-59fa-b5b4-15084564b597::C:\\work\\acme\\mobile"
+     "89746be0-39e1-5bfb-90ff-e04002cad4aa::C:\\work\\acme\\web-app"
     ],
     [
      "ORCA_TERMINAL_HANDLE",
@@ -657,7 +658,7 @@
     "--resume",
     "c713aab9-f7b7-515e-90d0-c275b6343da2"
    ],
-   "cwd": "C:\\work\\acme\\mobile",
+   "cwd": "C:\\work\\acme\\web-app",
    "env": [
     [
      "ORCA_TAB_ID",
@@ -665,7 +666,7 @@
     ],
     [
      "ORCA_WORKTREE_ID",
-     "aec1e42b-3031-59fa-b5b4-15084564b597::C:\\work\\acme\\mobile"
+     "89746be0-39e1-5bfb-90ff-e04002cad4aa::C:\\work\\acme\\web-app"
     ],
     [
      "ORCA_TERMINAL_HANDLE",

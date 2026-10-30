@@ -24,3 +24,4 @@ Sleep 1.5s
 Show
 Sleep 500ms
 Screenshot docs/images/sessions-ko.png
+Sleep 300ms
