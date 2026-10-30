@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 
-use agentlens_core::health::{Candidate, fmt_duration, short_cmd};
+use agentlens_core::health::{Candidate, fmt_duration, short_cmd, tree_label};
 use agentlens_core::model::{HelperKind, Model, Role};
 use agentlens_core::net::{self, Port, PortOwner, SshConn};
 
@@ -50,6 +50,7 @@ pub fn render(model: &Model, candidates: &[Candidate], ssh: &[SshConn]) -> Strin
             );
             for session in &tab.sessions {
                 let tree = model.subtree(session.root_pid);
+                let all = model.session_pids(session.root_pid);
                 let provider = session
                     .provider
                     .as_deref()
@@ -65,8 +66,8 @@ pub fn render(model: &Model, candidates: &[Candidate], ssh: &[SshConn]) -> Strin
                     "    {}{provider}  pid {}  {} procs {}{sid}",
                     session.agent_name,
                     session.root_pid,
-                    tree.len(),
-                    mb(model.private_bytes(&tree))
+                    all.len(),
+                    mb(model.private_bytes(&all))
                 );
                 for pid in tree.iter().skip(1) {
                     let p = &model.procs[pid];
@@ -87,12 +88,23 @@ pub fn render(model: &Model, candidates: &[Candidate], ssh: &[SshConn]) -> Strin
                         short_cmd(p)
                     );
                 }
+                for pid in model.detached.get(&session.root_pid).into_iter().flatten() {
+                    let tree = model.subtree(*pid);
+                    let _ = writeln!(
+                        out,
+                        "      detached {} {} {}",
+                        pid,
+                        mb(model.private_bytes(&tree)),
+                        tree_label(model, *pid)
+                    );
+                }
             }
         }
     }
-    if !model.orphans.is_empty() {
+    let orphans: Vec<_> = model.orphans.iter().filter(|o| !model.is_detached(o.pid)).collect();
+    if !orphans.is_empty() {
         let _ = writeln!(out, "Orphans");
-        for o in &model.orphans {
+        for o in orphans {
             let p = &model.procs[&o.pid];
             let tree = model.subtree(o.pid);
             let _ = writeln!(

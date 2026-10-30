@@ -1,8 +1,9 @@
-//! Finds where catalog agents are installed so `node <script>` launches can be matched.
+//! Finds where catalog agents are installed so `node <script>` launches can be matched, and
+//! which catalog hosts this machine has.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use crate::catalog::{Catalog, normalize};
+use crate::catalog::{Catalog, HostDef, normalize};
 
 const SHIM_EXTS: &[&str] = &["cmd", "ps1", "bat"];
 
@@ -43,6 +44,104 @@ pub fn scan(catalog: &Catalog) -> Vec<(String, String)> {
         }
     }
     found
+}
+
+/// Ids of the hosts with a command on `PATH` or an entry in an app launcher. Each system keeps
+/// only some of these directories; the others are simply not there.
+pub fn scan_hosts(catalog: &Catalog) -> Vec<String> {
+    let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
+    let commands: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect())
+        .unwrap_or_default();
+    let mut launchers: Vec<PathBuf> = [
+        "/Applications",
+        "/System/Applications/Utilities",
+        "/usr/share/applications",
+        "/usr/local/share/applications",
+        "/var/lib/flatpak/exports/share/applications",
+        "/var/lib/snapd/desktop/applications",
+    ]
+    .map(PathBuf::from)
+    .into();
+    let start_menu = Path::new("Microsoft/Windows/Start Menu/Programs");
+    launchers.extend(var("APPDATA").map(|d| d.join(start_menu)));
+    launchers.extend(var("ProgramData").map(|d| d.join(start_menu)));
+    if let Some(home) = var("HOME") {
+        launchers.push(home.join("Applications"));
+        let data = var("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local/share"));
+        launchers.push(data.join("applications"));
+        launchers.push(data.join("flatpak/exports/share/applications"));
+    }
+    hosts_in(catalog, &commands, &launchers)
+}
+
+fn hosts_in(catalog: &Catalog, commands: &[PathBuf], launchers: &[PathBuf]) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut add = |matches: &dyn Fn(&HostDef) -> bool| {
+        for host in catalog.hosts.iter().filter(|h| matches(h)) {
+            if !found.contains(&host.id) {
+                found.push(host.id.clone());
+            }
+        }
+    };
+    for entry in commands
+        .iter()
+        .filter_map(|dir| std::fs::read_dir(dir).ok())
+        .flat_map(|list| list.flatten())
+    {
+        // App execution aliases on Windows are neither files nor folders here.
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        let (command, ext) = name.rsplit_once('.').unwrap_or((name.as_str(), ""));
+        if ext.is_empty() || ext == "exe" || SHIM_EXTS.contains(&ext) {
+            add(&|h| h.exe.iter().chain(&h.command).any(|e| e == command));
+        }
+    }
+    let mut names = Vec::new();
+    for dir in launchers {
+        launcher_names(dir, LAUNCHER_DEPTH, &mut names);
+    }
+    for name in &names {
+        let Some((stem, ext)) = name.rsplit_once('.') else {
+            continue;
+        };
+        if !LAUNCHER_EXTS.contains(&ext) {
+            continue;
+        }
+        // `.desktop` files are often named by reverse domain: `dev.zed.Zed`.
+        let last = stem.rsplit('.').next().unwrap_or(stem);
+        let bundle = format!("/{name}/");
+        add(&|h| {
+            h.path.contains(&bundle)
+                || h.exe.iter().chain(&h.command).any(|e| e == stem || e == last)
+                || h.app.iter().any(|a| {
+                    a == stem || a == last || stem.strip_prefix(a.as_str()).is_some_and(|r| r.starts_with(' '))
+                })
+        });
+    }
+    found
+}
+
+const LAUNCHER_EXTS: &[&str] = &["app", "desktop", "lnk"];
+
+/// Start Menu entries sit in a folder per vendor.
+const LAUNCHER_DEPTH: u32 = 2;
+
+/// Lowercase file names under `dir`. A macOS bundle is a folder, and counts as one entry.
+fn launcher_names(dir: &Path, depth: u32, names: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if entry.file_type().is_ok_and(|t| t.is_dir()) && !name.ends_with(".app") {
+            if depth > 0 {
+                launcher_names(&entry.path(), depth - 1, names);
+            }
+        } else {
+            names.push(name);
+        }
+    }
 }
 
 fn is_system_dir(catalog: &Catalog, dir: &Path) -> bool {
@@ -118,6 +217,42 @@ pub fn shim_targets(text: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_hosts_on_path_and_in_each_systems_launchers() {
+        let root = std::env::temp_dir().join(format!("agentlens-hosts-{}", std::process::id()));
+        let (bin, apps) = (root.join("bin"), root.join("apps"));
+        std::fs::create_dir_all(bin.join("zed")).unwrap(); // A folder, not the command.
+        std::fs::create_dir_all(apps.join("Ghostty.app")).unwrap();
+        std::fs::create_dir_all(apps.join("JetBrains")).unwrap();
+        for file in [
+            "bin/wt.exe",
+            "bin/tmux",
+            "bin/orca.txt",
+            "apps/Visual Studio Code.lnk",
+            "apps/JetBrains/IntelliJ IDEA 2026.1.lnk",
+            "apps/org.wezfurlong.wezterm.desktop",
+            "apps/org.gnome.Terminal.desktop",
+            "apps/Wave Link.lnk",
+        ] {
+            std::fs::write(root.join(file), "").unwrap();
+        }
+        let mut found = hosts_in(&Catalog::builtin(), &[bin], &[apps]);
+        std::fs::remove_dir_all(&root).unwrap();
+        found.sort();
+        assert_eq!(
+            found,
+            [
+                "ghostty",
+                "jetbrains",
+                "linux-terminal",
+                "tmux",
+                "vscode",
+                "wezterm",
+                "windows-terminal"
+            ]
+        );
+    }
 
     #[test]
     fn reads_scripts_but_not_binaries() {

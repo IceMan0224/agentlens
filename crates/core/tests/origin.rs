@@ -3,6 +3,7 @@
 
 use std::collections::HashSet;
 
+use agentlens_core::actions::plan;
 use agentlens_core::catalog::Catalog;
 use agentlens_core::health::{Candidate, CandidateKind, History, Policy, candidates};
 use agentlens_core::model::Model;
@@ -348,4 +349,205 @@ fn a_closed_input_does_not_make_a_live_sessions_server_a_leftover() {
     let found = orphans(&m, &origins, &quick, HashSet::new());
     let server = find(&found, 40).expect("still listed as a parentless runtime");
     assert!(!server.eligible, "{:?}", server.reasons);
+}
+
+const NOHUP: &str = "C:\\Program Files\\Git\\usr\\bin\\nohup.exe";
+const UV: &str = "C:\\Users\\me\\.local\\bin\\uv.exe";
+const PYTHON: &str = "C:\\work\\app\\.venv\\Scripts\\python.exe";
+
+/// `nohup uv run python run.py` from a session: the shell that ran it has exited, so `nohup`
+/// has lost its parent, and a launcher like it shows no marks of its own.
+fn detached_server(owner: &str) -> Vec<ProcInfo> {
+    let marks = [("CLAUDE_PID", owner), ("AI_AGENT", "claude-code_2-1-0_agent")];
+    let mut uv = proc(31, 30, UV, &["uv", "run", "python", "run.py"], &marks);
+    let mut python = proc(32, 31, PYTHON, &["python", "run.py"], &marks);
+    uv.private_bytes = 40 << 20;
+    python.private_bytes = 900 << 20;
+    vec![proc(30, 29, NOHUP, &["nohup", "uv"], &[]), uv, python]
+}
+
+fn tracked(m: &mut Model) -> Origins {
+    let mut origins = Origins::default();
+    origins.update(m, &Catalog::builtin());
+    origins.attach(m);
+    origins
+}
+
+#[test]
+fn what_left_a_live_session_stays_with_that_session() {
+    let mut processes = session(&[], &[]);
+    processes.extend(detached_server("12"));
+    let mut m = model(T0, processes, Vec::new());
+    let origins = tracked(&mut m);
+
+    assert_eq!(m.detached.get(&12), Some(&vec![30]), "shown from the launcher down");
+    let pids = m.session_pids(12);
+    assert!([30, 31, 32].iter().all(|p| pids.contains(p)), "{pids:?}");
+    assert_eq!(
+        m.locate(32),
+        m.locate(12),
+        "its ports and connections are the session's"
+    );
+    let tab = &m.groups[0].tabs[0];
+    assert!(m.tab_pids(tab).contains(&32));
+
+    let found = orphans(&m, &origins, &policy(), HashSet::new());
+    assert!(!find(&found, 30).expect("listed").eligible, "its owner is alive");
+}
+
+#[test]
+fn a_tree_is_listed_once_from_the_orphan_at_its_top() {
+    // The shell shows no marks, so only what it runs says whose it is.
+    let marks = [("CLAUDE_PID", "12")];
+    let mut processes = session(&[], &[]);
+    processes.push(proc(30, 29, BASH, &["bash", "-c", "npm run dev"], &[]));
+    processes.push(proc(31, 30, NODE, &["node", "a.mjs"], &marks));
+    processes.push(proc(32, 30, NODE, &["node", "b.mjs"], &marks));
+    let mut m = model(T0, processes, Vec::new());
+    tracked(&mut m);
+    assert_eq!(m.detached.get(&12), Some(&vec![30]));
+    assert!(m.is_detached(30) && !m.is_detached(31));
+}
+
+#[test]
+fn a_launcher_goes_with_what_an_ended_session_left() {
+    let mut processes = without(&session(&[], &[]), &[12, 13, 14, 15]);
+    processes.extend(detached_server("12"));
+    let mut m = model(T0, processes, Vec::new());
+    let origins = tracked(&mut m);
+    assert!(m.detached.is_empty());
+
+    let found = orphans(
+        &m,
+        &origins,
+        &Policy {
+            owner_gone_grace: 0,
+            ..policy()
+        },
+        HashSet::new(),
+    );
+    let tree = find(&found, 30).expect("the launcher is the root of the tree");
+    assert!(tree.eligible, "{:?}", tree.reasons);
+    assert!(tree.reasons.iter().any(|r| r == "owner-gone"));
+    assert!(find(&found, 31).is_none(), "one row for the tree");
+    assert_eq!(tree.label, "nohup.exe → python.exe run.py (3 procs)");
+}
+
+#[test]
+fn a_program_with_more_to_do_is_not_a_launcher() {
+    // Started long before the marked child, or running other children: it has its own work.
+    let slow = {
+        let mut p = detached_server("12");
+        p[0].start_time -= 60;
+        p
+    };
+    let busy = {
+        let mut p = detached_server("12");
+        p.push(proc(33, 30, "C:\\tools\\other.exe", &["other"], &[]));
+        p
+    };
+    for processes in [slow, busy] {
+        let mut m = model(T0, processes, Vec::new());
+        let origins = tracked(&mut m);
+        assert!(m.wrappers.is_empty());
+        let found = orphans(
+            &m,
+            &origins,
+            &Policy {
+                owner_gone_grace: 0,
+                ..policy()
+            },
+            HashSet::new(),
+        );
+        assert!(find(&found, 30).is_none(), "not proposed for what it started");
+        assert!(find(&found, 31).is_some_and(|c| c.eligible));
+    }
+}
+
+#[test]
+fn a_program_an_agent_started_is_listed_whatever_it_is_called() {
+    let marks = [("CLAUDE_PID", "4000")];
+    let mut m = model(
+        T0,
+        vec![proc(40, 39, "C:\\tools\\devd.exe", &["devd", "serve"], &marks)],
+        Vec::new(),
+    );
+    tracked(&mut m);
+    let orphan = m
+        .orphans
+        .iter()
+        .find(|o| o.pid == 40)
+        .expect("not a runtime, still listed");
+    assert!(orphan.launched_by_agent && !orphan.agent_related);
+}
+
+#[test]
+fn an_unmarked_program_is_still_nobodys_business() {
+    let m = model(
+        T0,
+        vec![proc(40, 39, "C:\\tools\\devd.exe", &["devd"], &[])],
+        Vec::new(),
+    );
+    assert!(m.orphans.is_empty());
+}
+
+#[test]
+fn a_closed_input_does_not_end_what_a_live_session_owns() {
+    let marks = [("CLAUDE_PID", "12")];
+    let shell = proc(30, 29, BASH, &["bash", "-c", "uv run"], &[]);
+    let launcher = proc(30, 29, NOHUP, &["nohup", "uv"], &[]);
+    for root in [shell, launcher] {
+        let mut processes = session(&[], &[]);
+        processes.push(root);
+        processes.push(proc(31, 30, UV, &["uv", "run", "python", "run.py"], &marks));
+        let mut m = model(T0, processes, Vec::new());
+        let mut origins = tracked(&mut m);
+        origins.note_stdio_closed(&m, &HashSet::from([(30, m.procs[&30].start_time)]));
+        let quick = Policy {
+            owner_gone_grace: 0,
+            ..policy()
+        };
+        let found = orphans(&m, &origins, &quick, HashSet::new());
+        let tree = find(&found, 30).expect("listed");
+        assert!(!tree.eligible, "{:?}", tree.reasons);
+    }
+}
+
+#[test]
+fn a_host_older_than_the_session_only_adopted_what_left_it() {
+    // WSL: a process whose parent exits moves under the session's relay, below the WSL host.
+    let wsl = "/usr/lib/SessionLeader";
+    let marks = [("CLAUDE_PID", "12")];
+    let processes = vec![
+        proc(5, 0, wsl, &["SessionLeader"], &[]),
+        proc(6, 5, "/init", &["Relay(7)"], &[]),
+        proc(12, 6, CLAUDE, &["claude"], &[]),
+        proc(30, 6, "/usr/bin/python3", &["python3", "run.py"], &marks),
+    ];
+    let mut m = model(T0, processes, Vec::new());
+    tracked(&mut m);
+    assert_eq!(m.detached.get(&12), Some(&vec![30]));
+}
+
+#[test]
+fn a_host_the_session_started_keeps_what_it_runs() {
+    let marks = [("CLAUDE_PID", "12")];
+    let mut processes = session(&[], &[]);
+    let mut editor = proc(30, 29, "C:\\Apps\\Code.exe", &["code"], &marks);
+    editor.name = "Code.exe".into();
+    processes.push(editor);
+    processes.push(proc(31, 30, NODE, &["node", "server.js"], &marks));
+    let mut m = model(T0, processes, Vec::new());
+    tracked(&mut m);
+    assert!(!m.is_detached(31));
+}
+
+#[test]
+fn ending_a_session_takes_what_it_started_outside_its_tree() {
+    let mut processes = session(&[], &[]);
+    processes.extend(detached_server("12"));
+    let mut m = model(T0, processes, Vec::new());
+    tracked(&mut m);
+    let targets: Vec<u32> = plan(&m, &[12]).targets.iter().map(|t| t.pid).collect();
+    assert!([12, 13, 30, 31, 32].iter().all(|p| targets.contains(p)), "{targets:?}");
 }

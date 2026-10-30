@@ -112,7 +112,7 @@ agentlens --replay snap.json       # browse a saved snapshot in the dashboard, r
 | 2 Cleanup | Cleanup candidates and the evidence for each (yellow = proposed) | `space` mark, `x` end marked |
 | 3 Network | SSH connections, keys, known hosts | `d` disconnect |
 | 4 Ports | Listening ports of sessions and leftovers | `k` end the owner, `a` all ports |
-| 5 Rules | How leftovers are found, catalog, rules file | `e` edit, `r` reload |
+| 5 Rules | How leftovers are found, the agents and hosts on this PC (commands on `PATH`, app launchers: Start Menu, `.desktop`, `.app`, and whatever is running) and the rest of the catalog, rules file | `e` edit, `r` reload |
 | 6 Settings | Language, automatic cleanup, idle threshold, leftovers to keep, agent hooks, agent MCP | `←/→`/`enter` change |
 
 Common keys: `1`–`6` or `tab` switch views, `s` sort (memory, CPU, idle), mouse wheel and
@@ -138,6 +138,9 @@ A process counts as a leftover in either of these cases:
 
 A leftover is proposed for cleanup 15 seconds after its owner is seen gone. The full rules are in
 the Rules view and the [Korean documentation](README.ko.md).
+
+A process that left a running session's tree, such as `nohup uv run python run.py`, is not a
+leftover. It stays under that session as *detached*, and ending the session ends it too.
 
 ### Agent hooks
 

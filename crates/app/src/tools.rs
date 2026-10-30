@@ -35,7 +35,7 @@ pub fn leftovers(m: &Model, candidates: &[Candidate]) -> String {
         candidates.len()
     );
     for c in candidates {
-        let procs = m.subtree(c.root_pid).len();
+        let procs = m.session_pids(c.root_pid).len();
         let default = if c.eligible { "proposed" } else { "kept by default" };
         out.push_str(&format!(
             "- pid {} {} ({procs} process(es), {}): {}, {default}; {}\n",
@@ -55,7 +55,7 @@ pub fn session_processes(m: &Model, caller: u32) -> Result<String, String> {
             "The session of this MCP server (pid {caller}) is not in the dashboard; its agent may not be recognized."
         )
     })?;
-    let pids = m.subtree(root);
+    let pids = m.session_pids(root);
     let mut out = format!("{label}: {} process(es), {}\n", pids.len(), mb(m.private_bytes(&pids)));
     for pid in pids {
         let Some(p) = m.procs.get(&pid) else { continue };

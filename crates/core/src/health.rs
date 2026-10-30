@@ -146,7 +146,8 @@ pub fn candidates(
             OrphanReason::PidReused => "parent-pid-reused".to_string(),
             OrphanReason::Reparented => "adopted-by-init".to_string(),
         }];
-        let owner = gone(orphan.pid);
+        // A launcher carries no marks of its own: what it started says whose it is.
+        let owner = gone(orphan.pid).or_else(|| gone(*model.wrappers.get(&orphan.pid)?));
         let stdio = owner.is_none() && origins.stdio_closed(model, orphan.pid, policy.owner_gone_grace);
         if let Some(owner) = owner {
             owner_reasons(owner, &mut reasons);
@@ -194,7 +195,7 @@ pub fn candidates(
     for group in &model.groups {
         for tab in &group.tabs {
             for session in &tab.sessions {
-                let tree = model.subtree(session.root_pid);
+                let tree = model.session_pids(session.root_pid);
                 let idle = history.idle_secs(model, &tree);
                 if idle >= policy.idle_minutes * 60 {
                     out.push(Candidate {
@@ -290,7 +291,7 @@ fn orphan_candidate(model: &Model, history: &History, pid: u32, mut reasons: Vec
     Candidate {
         kind: CandidateKind::Orphan,
         root_pid: pid,
-        label: format!("{} {}", p.name, short_cmd(p)),
+        label: tree_label(model, pid),
         reasons,
         private_bytes: model.private_bytes(&tree),
         eligible,
@@ -316,7 +317,7 @@ fn keep_in_use(model: &Model, policy: &Policy, windowed: impl FnOnce() -> HashSe
             for t in &g.tabs {
                 for s in &t.sessions {
                     let label = format!("{} @ {} / {}", s.agent_name, g.name, t.label);
-                    let tree = model.subtree(s.root_pid);
+                    let tree = model.session_pids(s.root_pid);
                     for c in model.tcp.iter().filter(|c| tree.contains(&c.pid)) {
                         sessions.insert((c.local_addr.as_str(), c.local_port, c.remote_port), label.clone());
                     }
@@ -343,6 +344,24 @@ fn keep_in_use(model: &Model, policy: &Policy, windowed: impl FnOnce() -> HashSe
     }
 }
 
+/// What a tree is for: its root, and the process doing the work when that is another one
+/// (`uv.exe → python.exe run.py (3 procs)`). A launcher or shell at the root says little.
+pub fn tree_label(model: &Model, root: u32) -> String {
+    let p = &model.procs[&root];
+    let tree: Vec<&crate::snapshot::ProcInfo> = model
+        .subtree(root)
+        .iter()
+        .filter(|q| !model.pty_glue.contains(q))
+        .map(|q| &model.procs[q])
+        .collect();
+    let main = tree.iter().max_by_key(|q| q.private_bytes).copied().unwrap_or(p);
+    if main.pid == root {
+        format!("{} {}", p.name, short_cmd(p))
+    } else {
+        format!("{} → {} {} ({} procs)", p.name, main.name, short_cmd(main), tree.len())
+    }
+}
+
 /// The script being run plus a few of its arguments, else the first arguments.
 pub fn short_cmd(p: &crate::snapshot::ProcInfo) -> String {
     let args: Vec<&String> = p.cmd.iter().skip(1).collect();
@@ -354,7 +373,7 @@ pub fn short_cmd(p: &crate::snapshot::ProcInfo) -> String {
             .chain(args[i + 1..].iter().take(3).map(|a| a.to_string()))
             .collect::<Vec<_>>()
             .join(" "),
-        None => args.iter().take(2).map(|a| a.as_str()).collect::<Vec<_>>().join(" "),
+        None => args.iter().take(3).map(|a| a.as_str()).collect::<Vec<_>>().join(" "),
     };
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
     match flat.char_indices().nth(60) {
