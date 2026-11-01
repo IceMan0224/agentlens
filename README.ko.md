@@ -273,8 +273,6 @@ cargo test
 README의 화면과 애니메이션은 [`docs/demo`](docs/demo)의 [VHS](https://github.com/charmbracelet/vhs) 스크립트로
 지어낸 스냅샷을 재생해 만듭니다(`cargo build --release` 후 `vhs docs/demo/demo.tape`).
 
-개발 계획과 진행 상황은 [docs/PLAN.md](docs/PLAN.md)에 있습니다.
-
 ## 라이선스
 
 [MIT](LICENSE)
