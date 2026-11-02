@@ -374,7 +374,7 @@ impl App {
 
         let stats = |pids: &[u32], idle: Option<u64>| -> Vec<Cell<'static>> {
             vec![
-                Cell::from(pids.len().to_string()),
+                Cell::from(shown(m, pids).to_string()),
                 Cell::from(mb(m.private_bytes(pids))),
                 Cell::from(format!("{:.1}", m.cpu_share(pids))),
                 Cell::from(idle.map(fmt_duration).unwrap_or_default()),
@@ -414,7 +414,10 @@ impl App {
                         (false, None) => t(lang, "not agent", "에이전트 아님").to_string(),
                     };
                     let mut cells = vec![
-                        Cell::from(format!("  {}", fold(self.is_open(&item), &p.name))),
+                        Cell::from(format!(
+                            "  {}",
+                            fold_if(shown(m, &tree) > 1, self.is_open(&item), &p.name)
+                        )),
                         Cell::from(o.pid.to_string()),
                     ];
                     cells.extend(stats(&tree, Some(self.idle(m, &tree))));
@@ -489,7 +492,11 @@ impl App {
                     let provider = s.provider.as_deref().map(|p| format!(" ({p})")).unwrap_or_default();
                     let name = format!(
                         "    {}",
-                        fold(self.is_open(&item), &format!("{}{provider}", s.agent_name))
+                        fold_if(
+                            shown(m, &tree) > 1,
+                            self.is_open(&item),
+                            &format!("{}{provider}", s.agent_name)
+                        )
                     );
                     let mut cells = vec![Cell::from(name), Cell::from(s.root_pid.to_string())];
                     cells.extend(stats(&tree, Some(self.idle(m, &tree))));
@@ -1007,7 +1014,12 @@ impl App {
             Sort::Cpu => "cpu",
             Sort::Idle => t(lang, "idle", "유휴"),
         };
-        let (mem, procs, eligible, ssh) = (mb(m.private_bytes(&pids)), pids.len(), mb(eligible), self.ssh.len());
+        let (mem, procs, eligible, ssh) = (
+            mb(m.private_bytes(&pids)),
+            shown(m, &pids),
+            mb(eligible),
+            self.ssh.len(),
+        );
         Line::from(vec![
             Span::raw(tf!(
                 lang,
@@ -1335,6 +1347,31 @@ impl App {
             Line::from(t(lang, "How orphans are found", "고아 프로세스 판정 원리")).bold(),
         ];
         lines.extend(orphans.iter().map(|l| Line::from(format!("  · {l}"))));
+        // Mirrors `helper_kind` in the core model.
+        let procs: [&str; 3] = match lang {
+            Language::En => [
+                "Host, tab, session and orphan rows count their processes. Windows starts a console host \
+                 (conhost) with each console program; it lives and ends with that program, so it gets no row \
+                 and no count, but its memory is included.",
+                "An unfolded process row shows its kind in this column instead: agent (an agent inside the \
+                 session, such as a sub-agent), shell (cmd, pwsh, bash running a command), repl (where the \
+                 agent runs code, such as Codex's node_repl), mcp (an MCP server), browser (a browser the \
+                 agent drives), sandbox (runs commands in isolation), tool (anything else the agent \
+                 started: its own helper programs, node scripts, build tools, dev servers).",
+                "Rows without anything under them have no fold marker.",
+            ],
+            Language::Ko => [
+                "호스트·탭·세션·고아 행은 프로세스 개수입니다. Windows는 콘솔 프로그램마다 콘솔 호스트(conhost)를 \
+                 함께 띄우는데, 그 프로그램과 함께 뜨고 함께 끝나므로 행과 개수에서는 빼고 메모리에는 포함합니다.",
+                "펼친 프로세스 행에는 개수 대신 종류가 나옵니다: agent(세션 안의 에이전트, 하위 에이전트 등), \
+                 shell(명령을 실행하는 cmd·pwsh·bash), repl(에이전트가 코드를 실행하는 곳, Codex의 node_repl 등), \
+                 mcp(MCP 서버), browser(에이전트가 조작하는 브라우저), sandbox(명령을 격리해 실행), \
+                 tool(그 밖에 에이전트가 띄운 것: 에이전트의 보조 프로그램, node 스크립트, 빌드 도구, dev 서버).",
+                "아래에 펼칠 것이 없는 행에는 펼침 표시(▸)가 없습니다.",
+            ],
+        };
+        lines.extend([Line::from(""), Line::from(t(lang, "Procs column", "개수 열")).bold()]);
+        lines.extend(procs.iter().map(|l| Line::from(format!("  · {l}"))));
         let (agents, hosts) = (self.catalog.agents.len(), self.catalog.hosts.len());
         let (agents_here, other_agents) = split_found(
             self.catalog.agents.iter().map(|a| (a.id.as_str(), a.name.as_str())),
@@ -2307,6 +2344,20 @@ fn fold(open: bool, label: &str) -> String {
     format!("{} {label}", if open { "▾" } else { "▸" })
 }
 
+/// `fold`, or blanks in place of the marker when there is nothing to unfold.
+fn fold_if(has_rows: bool, open: bool, label: &str) -> String {
+    if has_rows {
+        fold(open, label)
+    } else {
+        format!("  {label}")
+    }
+}
+
+/// How many of `pids` get a row: pseudo-console glue is counted in memory, not here.
+fn shown(m: &Model, pids: &[u32]) -> usize {
+    pids.iter().filter(|p| !m.pty_glue.contains(p)).count()
+}
+
 /// `pid:<pid>` or `<host>:<tab marker>`, shortened for the Info column.
 fn short_key(key: &str) -> String {
     match key.split_once(':') {
@@ -2469,7 +2520,7 @@ mod tests {
         key(&mut app, KeyCode::Char('5'));
         let s = screen(&mut app);
         assert!(s.contains("agents in catalog: 45"), "{s}");
-        assert!(s.contains("How orphans are found"));
+        assert!(s.contains("How orphans are found") && s.contains("Procs column"));
         key(&mut app, KeyCode::Char('6'));
         let s = screen(&mut app);
         assert!(s.contains("automatic cleanup is off"), "{s}");
@@ -2501,6 +2552,41 @@ mod tests {
         let buf = terminal.backend().buffer();
         assert!(buf.content.iter().all(|c| c.fg == Color::Reset && c.bg == Color::Reset));
         assert!(buf.content.iter().any(|c| c.modifier.contains(Modifier::REVERSED)));
+    }
+
+    #[test]
+    fn console_hosts_are_not_counted_and_lone_sessions_have_no_fold_marker() {
+        let mut snapshot: Snapshot =
+            serde_json::from_str(include_str!("../../core/tests/fixtures/sample.json")).unwrap();
+        // Windows gives a console program a conhost of its own: here a lone Claude Code and a
+        // REPL under Codex.
+        let repl = snapshot
+            .processes
+            .iter()
+            .find(|p| p.ppid == Some(25048) && p.name == "node_repl.exe")
+            .unwrap()
+            .pid;
+        for (pid, parent) in [(60001, 29888), (60002, repl)] {
+            let mut p = snapshot.processes.iter().find(|p| p.pid == parent).unwrap().clone();
+            (p.pid, p.ppid, p.name) = (pid, Some(parent), "conhost.exe".into());
+            p.exe = Some(r"C:\Windows\system32\conhost.exe".into());
+            p.cmd = vec![r"\??\C:\Windows\system32\conhost.exe".into(), "0x4".into()];
+            snapshot.processes.push(p);
+        }
+        let mut app = App::new(Rules::default(), Vec::new());
+        app.apply(snapshot);
+        let s = screen(&mut app);
+        let row = |pid: &str| s.lines().find(|l| l.contains(pid)).unwrap().to_string();
+        let procs = |row: &str, pid: &str| {
+            let mut cells = row.split_whitespace().skip_while(|c| *c != pid);
+            cells.nth(1).unwrap().to_string()
+        };
+
+        let lone = row("29888");
+        assert!(!lone.contains('▸') && procs(&lone, "29888") == "1", "{lone}");
+        let codex = row("25048");
+        assert!(codex.contains('▸') && procs(&codex, "25048") == "3", "{codex}");
+        assert!(s.contains("in 47 procs"), "{s}");
     }
 
     fn korean_app() -> App {
