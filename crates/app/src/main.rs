@@ -4,17 +4,18 @@ mod report;
 mod tools;
 mod tui;
 
+use std::path::Path;
 use std::time::Duration;
 
 use agentlens_core::catalog::Catalog;
-use agentlens_core::health::{History, Policy, candidates};
+use agentlens_core::health::{Candidate, History, Policy, candidates};
 use agentlens_core::model::Model;
 use agentlens_core::origin::Origins;
 use agentlens_core::rules::Rules;
 use agentlens_core::stdio::StdioProbe;
-use agentlens_core::{Collector, Snapshot, hooks, install, net};
+use agentlens_core::{Collector, Snapshot, hooks, install, locks, net};
 
-const USAGE: &str = "usage: agentlens [--report [snapshot.json] | --dump-json | --replay snapshot.json]";
+const USAGE: &str = "usage: agentlens [--report [snapshot.json] | --dump-json | --replay snapshot.json | locks <path>]";
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -45,41 +46,33 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some("--report") => {
-            let snapshot = match args.get(1) {
-                Some(path) => serde_json::from_str(&std::fs::read_to_string(path)?)?,
-                None => live_snapshot(&catalog)?,
+            let (model, found) = match args.get(1) {
+                Some(path) => classify(
+                    serde_json::from_str(&std::fs::read_to_string(path)?)?,
+                    &catalog,
+                    &rules,
+                    false,
+                ),
+                None => classify(live_snapshot(&catalog)?, &catalog, &rules, true),
             };
-            let mut model = Model::build(snapshot, &catalog);
-            let mut history = History::default();
-            history.update(&model);
-            let mut origins = Origins::default();
-            origins.update(&model, &catalog);
-            origins.attach(&mut model);
-            // Pipes can only be checked on processes that are running now.
-            if args.get(1).is_none() {
-                let mut probe = StdioProbe::default();
-                probe.update(&model);
-                std::thread::sleep(Duration::from_millis(300));
-                origins.note_stdio_closed(&model, &probe.update(&model));
-            }
-            // A report sees one moment, so there is no waiting for an owner to stay gone.
-            let policy = Policy {
-                owner_gone_grace: 0,
-                ..rules.policy()
-            };
-            let found = candidates(
-                &model,
-                &history,
-                &origins,
-                &policy,
-                agentlens_core::snapshot::windowed_pids,
-            );
             let ssh = net::ssh_connections(&model, &catalog, &net::load_ssh_config());
             print!("{}", report::render(&model, &found, &ssh));
             Ok(())
         }
+        Some("locks") => {
+            let path = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("locks needs a file or folder\n{USAGE}"))?;
+            let (model, found) = classify(live_snapshot(&catalog)?, &catalog, &rules, true);
+            let holders = locks::find(&model, Path::new(path)).map_err(anyhow::Error::msg)?;
+            print!("{}", tools::lock_holders(&model, &found, &holders, None));
+            Ok(())
+        }
         Some("-h" | "--help") => {
-            println!("{USAGE}\n\nWithout arguments, opens the interactive dashboard.");
+            println!(
+                "{USAGE}\n\nWithout arguments, opens the interactive dashboard. `locks <path>` lists \
+                 the processes that hold a file or folder, by agent session."
+            );
             Ok(())
         }
         Some(other) => anyhow::bail!("unknown argument {other}\n{USAGE}"),
@@ -102,6 +95,36 @@ fn hook(agent: Option<&str>) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let dir = hooks::state_dir().ok_or("no state directory")?;
     hooks::record(&dir, &catalog, agent, hooks::owner(&catalog), &input)
+}
+
+/// The model and its cleanup candidates, as a one-shot report sees them. `live` means the
+/// snapshot was just taken, so the processes' pipes can be checked.
+fn classify(snapshot: Snapshot, catalog: &Catalog, rules: &Rules, live: bool) -> (Model, Vec<Candidate>) {
+    let mut model = Model::build(snapshot, catalog);
+    let mut history = History::default();
+    history.update(&model);
+    let mut origins = Origins::default();
+    origins.update(&model, catalog);
+    origins.attach(&mut model);
+    if live {
+        let mut probe = StdioProbe::default();
+        probe.update(&model);
+        std::thread::sleep(Duration::from_millis(300));
+        origins.note_stdio_closed(&model, &probe.update(&model));
+    }
+    // A report sees one moment, so there is no waiting for an owner to stay gone.
+    let policy = Policy {
+        owner_gone_grace: 0,
+        ..rules.policy()
+    };
+    let found = candidates(
+        &model,
+        &history,
+        &origins,
+        &policy,
+        agentlens_core::snapshot::windowed_pids,
+    );
+    (model, found)
 }
 
 fn live_snapshot(catalog: &Catalog) -> anyhow::Result<Snapshot> {
