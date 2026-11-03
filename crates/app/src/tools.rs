@@ -4,6 +4,7 @@
 use agentlens_core::actions;
 use agentlens_core::catalog::Catalog;
 use agentlens_core::health::{Candidate, CandidateKind, short_cmd};
+use agentlens_core::locks::{self, Hold, Holders};
 use agentlens_core::model::Model;
 
 use crate::report::mb;
@@ -84,6 +85,79 @@ pub fn session_processes(m: &Model, caller: u32) -> Result<String, String> {
         out.push('\n');
     }
     Ok(out)
+}
+
+/// Who holds a path, grouped by agent session or cleanup candidate. `caller` marks the asking
+/// session.
+pub fn lock_holders(m: &Model, candidates: &[Candidate], found: &Holders, caller: Option<u32>) -> String {
+    let checked = match found.open_checked {
+        true => "runs an executable from it, works in it or has anything in it open",
+        false => "runs an executable from it or works in it",
+    };
+    let mut out = match found.holders.len() {
+        0 => format!("Nothing holds {}: no process {checked}.\n", found.path),
+        n => format!("{n} process(es) hold {}:\n", found.path),
+    };
+    let asking = caller.and_then(|c| session_of(m, c)).map(|(root, _)| root);
+    // (heading, lines), in order of first appearance.
+    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
+    for h in &found.holders {
+        let session = h.listed.then(|| m.locate(h.pid)).flatten().map(|(gi, ti, si)| {
+            let (g, t) = (&m.groups[gi], &m.groups[gi].tabs[ti]);
+            let s = &t.sessions[si];
+            let this = if asking == Some(s.root_pid) {
+                ", this session"
+            } else {
+                ""
+            };
+            format!("{} @ {} / {} (pid {}{this})", s.agent_name, g.name, t.label, s.root_pid)
+        });
+        let candidate = h
+            .listed
+            .then(|| candidates.iter().find(|c| m.is_ancestor_or_self(c.root_pid, h.pid)))
+            .flatten();
+        let heading = match (session, candidate) {
+            (Some(label), Some(c)) => format!("{label}: {}, {}", kind(c), c.reasons.join(", ")),
+            (Some(label), None) => label,
+            (None, Some(c)) => format!(
+                "{} {} (pid {}): {}, {}",
+                kind(c),
+                c.label,
+                c.root_pid,
+                if c.eligible { "proposed" } else { "kept by default" },
+                c.reasons.join(", ")
+            ),
+            (None, None) if h.listed => "Not in an agent session".into(),
+            (None, None) => "Started after the last refresh".into(),
+        };
+        let proc = m.procs.get(&h.pid).filter(|_| h.listed);
+        let rel = |path: Option<&str>| locks::relative(path.unwrap_or_default(), &found.path).to_string();
+        let holds: Vec<String> = h
+            .holds
+            .iter()
+            .map(|hold| match hold {
+                Hold::Runs => format!("runs {}", rel(proc.and_then(|p| p.exe.as_deref()))),
+                Hold::WorksIn => format!("works in {}", rel(proc.and_then(|p| p.cwd.as_deref()))),
+                Hold::Opens => format!("has {} open", rel(h.open.as_deref())),
+            })
+            .collect();
+        let line = format!("  - pid {} {}: {}", h.pid, h.name, holds.join("; "));
+        match groups.iter_mut().find(|(g, _)| *g == heading) {
+            Some((_, lines)) => lines.push(line),
+            None => groups.push((heading, vec![line])),
+        }
+    }
+    for (heading, lines) in groups {
+        out.push_str(&format!("- {heading}\n"));
+        for line in lines {
+            out.push_str(&line);
+            out.push('\n');
+        }
+    }
+    if !found.open_checked {
+        out.push_str("Open files were not checked: only Windows reports them.\n");
+    }
+    out
 }
 
 /// Roots of the candidate trees to end for `pids` (none: the proposed ones), and notes on what
@@ -182,6 +256,52 @@ mod tests {
             session_processes(&m, 25480).is_err(),
             "a leftover belongs to no session"
         );
+    }
+
+    #[test]
+    fn lock_holders_are_grouped_by_session_and_leftover() {
+        use agentlens_core::locks::Holder;
+        let (m, _, found) = fixture();
+        let caller = caller(&m);
+        let holder = |pid: u32, holds: Vec<Hold>, listed: bool| Holder {
+            pid,
+            name: format!("p{pid}"),
+            holds,
+            open: Some("/pkg/lib/a.node".into()),
+            listed,
+        };
+        let holders = Holders {
+            path: "/pkg".into(),
+            holders: vec![
+                holder(caller, vec![Hold::Opens], true),
+                holder(25480, vec![Hold::Opens], true),
+                holder(4_000_000, vec![Hold::Opens], false),
+            ],
+            open_checked: true,
+        };
+        let text = lock_holders(&m, &found, &holders, Some(caller));
+        assert!(text.starts_with("3 process(es) hold /pkg:"), "{text}");
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(
+            lines[1].starts_with("- Claude Code @ ") && lines[1].ends_with(", this session)"),
+            "{text}"
+        );
+        assert!(lines[2].ends_with(": has lib/a.node open"), "{text}");
+        assert!(
+            lines[3].starts_with("- leftover ")
+                && lines[3].contains("(pid 25480): proposed, ")
+                && lines[3].contains("owner-gone"),
+            "{text}"
+        );
+        assert_eq!(lines[5], "- Started after the last refresh", "{text}");
+        let empty = Holders {
+            holders: Vec::new(),
+            open_checked: false,
+            ..holders
+        };
+        let text = lock_holders(&m, &found, &empty, None);
+        assert!(text.starts_with("Nothing holds /pkg: no process runs an executable from it or works in it."));
+        assert!(text.contains("only Windows reports them"), "{text}");
     }
 
     #[test]

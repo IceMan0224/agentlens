@@ -105,6 +105,21 @@ agentlens --report                 # print the current state once
 agentlens --dump-json > snap.json  # raw snapshot (secrets in command lines are masked)
 agentlens --report snap.json       # classify a saved snapshot
 agentlens --replay snap.json       # browse a saved snapshot in the dashboard, read-only
+agentlens locks <path>             # who holds a file or folder, by agent session
+```
+
+When an update or delete fails with `EBUSY`, "resource busy or locked" or "being used by another
+process", `agentlens locks` lists the processes that run an executable from the path, work in it,
+or (Windows) have anything in it open. They are grouped by agent session, and leftovers are marked
+with their evidence:
+
+```text
+3 process(es) hold C:\Users\me\AppData\Roaming\npm\node_modules\@openai\codex:
+- Codex @ Orca / acme/web-app (pid 28624)
+  - pid 12040 codex.exe: runs node_modules\@openai\codex-win32-x64\...\bin\codex.exe
+  - pid 39448 codex-code-mode-host.exe: runs node_modules\@openai\...\bin\codex-code-mode-host.exe
+- leftover node.exe watcher.js (pid 25480): proposed, owner-gone, from session Codex @ Orca / acme/api
+  - pid 25480 node.exe: has node_modules\@openai\codex\package.json open
 ```
 
 | View | Shows | Keys |
@@ -165,6 +180,7 @@ changed through its own `claude mcp add`.
 | `list_leftovers` | Cleanup candidates, the evidence for each, and which are proposed |
 | `list_session_processes` | The asking session's process tree, with memory, commands and listening ports |
 | `end_leftovers` | Ends the proposed candidates, or those named by pid. Nothing outside the candidate list, and never the asking session |
+| `find_lock_holders` | Who holds a file or folder, as `agentlens locks` shows it, so an agent whose update or delete failed can tell which session to close |
 
 The server only passes questions on. The dashboard, which has watched the sessions, decides and
 ends, with the same refusals and re-checks as when you end something yourself, so keep it
@@ -200,6 +216,10 @@ tab_env = "MYTERM_TAB"
 
 - Disconnecting SSH ends the owning process; it does not drop the TCP connection alone.
 - Processes of other users and services cannot be read and are not classified.
+- Open files are found on Windows only, where an open file blocks replacing or deleting it.
+  Elsewhere `locks` reports running executables and working directories. On Windows it reads every
+  file handle of the processes it may open (about half a second); other users' processes are not
+  seen.
 - The closed-channel check is Windows-only for now: on macOS and Linux, Node-started MCP servers
   talk over socket pairs rather than pipes.
 

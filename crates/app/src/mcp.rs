@@ -89,6 +89,18 @@ fn tools() -> Value {
             },
             "annotations": {"destructiveHint": true},
         },
+        {
+            "name": "find_lock_holders",
+            "description": "Find which processes hold a file or folder (run an executable from it, work in it, or have something in it open), grouped by agent session, with leftovers marked. Use it when replacing, moving or deleting files fails with EBUSY, EPERM, 'resource busy or locked' or 'being used by another process', for example a package update.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "The file or folder; relative paths are taken from this server's working directory"}
+                },
+                "required": ["path"],
+            },
+            "annotations": {"readOnlyHint": true},
+        },
     ])
 }
 
@@ -97,9 +109,16 @@ fn call(params: &Value, ask: &impl Fn(Request) -> Result<Reply, String>) -> Resu
     if !tools().as_array().is_some_and(|t| t.iter().any(|t| t["name"] == name)) {
         return Err((-32602, format!("unknown tool {name}")));
     }
+    let mut args = params.get("arguments").cloned().unwrap_or(json!({}));
+    // The dashboard runs elsewhere, so a relative path is made absolute here.
+    if let Some(path) = args.get("path").and_then(Value::as_str)
+        && let Ok(cwd) = std::env::current_dir()
+    {
+        args["path"] = json!(cwd.join(path).to_string_lossy());
+    }
     let request = Request {
         tool: name.to_string(),
-        args: params.get("arguments").cloned().unwrap_or(json!({})),
+        args,
         caller: std::process::id(),
     };
     let reply = ask(request).unwrap_or_else(|_| Reply {
@@ -133,7 +152,7 @@ mod tests {
         assert_eq!(init["id"], 1);
         assert!(handle(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#, &echo).is_none());
         let list = handle(r#"{"jsonrpc":"2.0","id":"a","method":"tools/list"}"#, &echo).unwrap();
-        assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 3);
+        assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 4);
         let call = handle(
             r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"end_leftovers","arguments":{"pids":[5]}}}"#,
             &echo,
@@ -141,6 +160,17 @@ mod tests {
         .unwrap();
         assert_eq!(call["result"]["content"][0]["text"], r#"end_leftovers {"pids":[5]}"#);
         assert_eq!(call["result"]["isError"], false);
+        // `join` keeps an absolute path as it is and makes a relative one absolute.
+        let path = std::env::temp_dir().join("x");
+        let call = |path: &str| {
+            let msg = json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                "params": {"name": "find_lock_holders", "arguments": {"path": path}}});
+            handle(&msg.to_string(), &echo).unwrap()["result"]["content"][0]["text"].clone()
+        };
+        let absolute = json!({"path": path.to_string_lossy()}).to_string();
+        assert_eq!(call(&path.to_string_lossy()), format!("find_lock_holders {absolute}"));
+        let relative = json!({"path": std::env::current_dir().unwrap().join("x").to_string_lossy()}).to_string();
+        assert_eq!(call("x"), format!("find_lock_holders {relative}"));
         let unknown = handle(
             r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"rm"}}"#,
             &echo,

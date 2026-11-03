@@ -13,6 +13,7 @@ use agentlens_core::health::{
 use agentlens_core::hooks::{self, HookState};
 use agentlens_core::install;
 use agentlens_core::keys::{self, KeyInfo, SshInventory};
+use agentlens_core::locks;
 use agentlens_core::mcp::{self, McpState, inbox};
 use agentlens_core::model::{Group, GroupKind, Model, Role, short_path};
 use agentlens_core::net::{self, Port, PortOwner, SshConn, SshHost};
@@ -1893,6 +1894,18 @@ impl App {
                 Ok(text) => reply(text, false),
                 Err(text) => reply(text, true),
             },
+            "find_lock_holders" => {
+                let Some(path) = request.args.get("path").and_then(|v| v.as_str()) else {
+                    return reply("find_lock_holders needs a path".into(), true);
+                };
+                match locks::find(m, std::path::Path::new(path)) {
+                    Ok(found) => reply(
+                        tools::lock_holders(m, &self.candidates, &found, Some(request.caller)),
+                        false,
+                    ),
+                    Err(e) => reply(e, true),
+                }
+            }
             "end_leftovers" => {
                 let pids: Option<Vec<u32>> = request.args.get("pids").and_then(|v| v.as_array()).map(|a| {
                     a.iter()

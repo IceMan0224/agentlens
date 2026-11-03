@@ -300,6 +300,183 @@ pub fn stdin_closed(pid: u32) -> Option<bool> {
     }
 }
 
+/// `SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct HandleEntry {
+    object: usize,
+    pid: usize,
+    handle: usize,
+    granted_access: u32,
+    creator_back_trace_index: u16,
+    object_type_index: u16,
+    attributes: u32,
+    reserved: u32,
+}
+
+/// How long one handle may take before it is left to its worker: asking about a handle whose
+/// owner waits in a synchronous read on it blocks until that read returns.
+const HANDLE_STALL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Every file and folder other processes have open, as (pid, path), from one listing of all
+/// handles in the system: each file handle is copied and asked for its path. Processes that
+/// cannot be opened (other users, protected) are left out. `None` when the listing failed.
+pub fn open_files() -> Option<Vec<(u32, String)>> {
+    use std::sync::{Arc, Mutex};
+    use std::time::Instant;
+
+    let handles = file_handles()?;
+    let me = std::process::id();
+    let handles: Arc<Vec<(u32, usize)>> = Arc::new(handles.into_iter().filter(|(pid, _)| *pid != me).collect());
+    let state: Arc<HandleProgress> = Arc::new(Mutex::new((0, 0, Vec::new())));
+    let spawn = || {
+        let (handles, state) = (Arc::clone(&handles), Arc::clone(&state));
+        std::thread::Builder::new()
+            .name("agentlens-handles".into())
+            .stack_size(64 * 1024)
+            .spawn(move || resolve_handles(&handles, &state))
+            .ok()
+    };
+    spawn()?;
+    let (mut seen, mut since, mut stalled) = (0, Instant::now(), 0);
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let (taken, finished) = {
+            let s = state.lock().unwrap();
+            (s.0, s.1)
+        };
+        if finished + stalled >= handles.len() {
+            break;
+        }
+        if finished != seen {
+            (seen, since) = (finished, Instant::now());
+        } else if since.elapsed() > HANDLE_STALL && taken > finished + stalled {
+            // The worker is stuck on one handle: leave it there and go on with a new one.
+            stalled += 1;
+            since = Instant::now();
+            spawn()?;
+        }
+    }
+    let mut s = state.lock().unwrap();
+    Some(std::mem::take(&mut s.2))
+}
+
+/// Next handle to take, handles finished, and the (pid, path) found so far.
+type HandleProgress = std::sync::Mutex<(usize, usize, Vec<(u32, String)>)>;
+
+fn resolve_handles(handles: &[(u32, usize)], state: &HandleProgress) {
+    use windows::Win32::Foundation::{DUPLICATE_SAME_ACCESS, DuplicateHandle};
+    use windows::Win32::Storage::FileSystem::{
+        FILE_TYPE_DISK, GetFileType, GetFinalPathNameByHandleW, VOLUME_NAME_DOS,
+    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, PROCESS_DUP_HANDLE};
+
+    let mut processes: std::collections::HashMap<u32, Option<HANDLE>> = std::collections::HashMap::new();
+    let mut buf = vec![0u16; 1024];
+    loop {
+        let i = {
+            let mut s = state.lock().unwrap();
+            if s.0 >= handles.len() {
+                break;
+            }
+            s.0 += 1;
+            s.0 - 1
+        };
+        let (pid, value) = handles[i];
+        // SAFETY: plain Win32 calls; the copied handle is closed here, the process handles at
+        // the end.
+        let path = unsafe {
+            let process = *processes
+                .entry(pid)
+                .or_insert_with(|| OpenProcess(PROCESS_DUP_HANDLE, false, pid).ok());
+            let mut copy = HANDLE::default();
+            match process {
+                Some(process)
+                    if DuplicateHandle(
+                        process,
+                        HANDLE(value as *mut _),
+                        GetCurrentProcess(),
+                        &mut copy,
+                        0,
+                        false,
+                        DUPLICATE_SAME_ACCESS,
+                    )
+                    .is_ok() =>
+                {
+                    // Pipes and devices have no path; only files and folders on disk are asked.
+                    let path = (GetFileType(copy) == FILE_TYPE_DISK)
+                        .then(|| {
+                            let len = GetFinalPathNameByHandleW(copy, &mut buf, VOLUME_NAME_DOS) as usize;
+                            (len > 0 && len < buf.len()).then(|| String::from_utf16_lossy(&buf[..len]))
+                        })
+                        .flatten();
+                    let _ = CloseHandle(copy);
+                    path
+                }
+                _ => None,
+            }
+        };
+        let mut s = state.lock().unwrap();
+        s.1 += 1;
+        if let Some(path) = path {
+            s.2.push((pid, path));
+        }
+    }
+    for process in processes.into_values().flatten() {
+        // SAFETY: opened above and not used after this.
+        let _ = unsafe { CloseHandle(process) };
+    }
+}
+
+/// (pid, handle value) of every file handle in the system. The kernel numbers object types
+/// differently between versions, so the file type's number is read off a handle opened here.
+fn file_handles() -> Option<Vec<(u32, usize)>> {
+    use windows::Wdk::System::SystemInformation::SYSTEM_INFORMATION_CLASS;
+    use windows::Win32::Foundation::STATUS_INFO_LENGTH_MISMATCH;
+
+    let probe = std::fs::File::open(std::env::current_exe().ok()?).ok()?;
+    let probe_value = std::os::windows::io::AsRawHandle::as_raw_handle(&probe) as usize;
+    let me = std::process::id() as usize;
+    // SYSTEM_HANDLE_INFORMATION_EX: a count and a reserved word, then the entries.
+    let mut buf: Vec<u64> = vec![0; 4 << 20 >> 3];
+    for _ in 0..6 {
+        let mut needed = 0u32;
+        // SAFETY: the buffer is writable for the length passed.
+        let status = unsafe {
+            NtQuerySystemInformation(
+                SYSTEM_INFORMATION_CLASS(64), // SystemExtendedHandleInformation
+                buf.as_mut_ptr().cast(),
+                (buf.len() * 8) as u32,
+                &mut needed,
+            )
+        };
+        if status == STATUS_INFO_LENGTH_MISMATCH {
+            buf = vec![0; (needed as usize).max(buf.len() * 16) / 8 + 8192];
+            continue;
+        }
+        if status.is_err() {
+            return None;
+        }
+        let count = buf[0] as usize;
+        let max = (buf.len() * 8 - 16) / size_of::<HandleEntry>();
+        // SAFETY: the kernel wrote `count` entries after the 16-byte header; capped to the buffer.
+        let entries = unsafe { std::slice::from_raw_parts(buf.as_ptr().add(2).cast::<HandleEntry>(), count.min(max)) };
+        let file_type = entries
+            .iter()
+            .find(|e| e.pid == me && e.handle == probe_value)?
+            .object_type_index;
+        drop(probe);
+        return Some(
+            entries
+                .iter()
+                .filter(|e| e.object_type_index == file_type)
+                .map(|e| (e.pid as u32, e.handle))
+                .collect(),
+        );
+    }
+    None
+}
+
 /// Processes owning a visible, titled top-level window: programs the user sees and works with.
 pub fn windowed_pids() -> std::collections::HashSet<u32> {
     unsafe extern "system" fn add(hwnd: HWND, found: LPARAM) -> BOOL {
