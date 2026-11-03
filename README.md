@@ -37,7 +37,8 @@ behind from evidence rather than names, and ends them only when it is safe to.
 
 - **Knows whose process it is.** It builds a host → tab → session → process tree for 45 agents
   (Claude Code, Codex, opencode, Gemini CLI, Copilot CLI, Aider, Goose, …). Supported hosts include
-  Orca, VS Code, Cursor, JetBrains, Windows Terminal, iTerm2, Ghostty, tmux, SSH logins and WSL.
+  Orca, VS Code, Cursor, JetBrains, Windows Terminal, iTerm2, Ghostty, cmux, tmux, herdr, SSH logins
+  and WSL.
 - **Finds leftovers by evidence, not by name.** It records what it saw under a session (lineage). It
   reads the session and PID that agents write into everything they start (birth record), and on
   Windows it checks whether anyone can still talk to a stdio server. Every candidate shows the
