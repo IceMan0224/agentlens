@@ -182,6 +182,55 @@ fn tmux_server_is_a_host_despite_its_process_title() {
 }
 
 #[test]
+fn cmux_workspaces_are_tabs() {
+    // Two terminals in one workspace share a row; another workspace gets its own.
+    let in_workspace = |p: ProcInfo, id: &str| ProcInfo {
+        env: vec![("CMUX_WORKSPACE_ID".into(), id.into())],
+        ..p
+    };
+    let ws1 = "0B0E5C1D-6A43-4C7B-9F51-6A2B9D7C1E01";
+    let ws2 = "6F1A2B3C-4D5E-4F60-8172-93A4B5C6D7E8";
+    let m = build(vec![
+        proc(1, 0, "/sbin/launchd", &[]),
+        proc(100, 1, "/Applications/cmux.app/Contents/MacOS/cmux", &[]),
+        in_workspace(proc(110, 100, "/bin/zsh", &["-zsh"]), ws1),
+        in_workspace(proc(111, 110, "/Users/me/.local/bin/claude", &["claude"]), ws1),
+        in_workspace(proc(120, 100, "/bin/zsh", &["-zsh"]), ws1),
+        in_workspace(proc(121, 120, "/usr/local/bin/codex", &["codex"]), ws1),
+        in_workspace(proc(130, 100, "/bin/zsh", &["-zsh"]), ws2),
+        in_workspace(proc(131, 130, "/usr/local/bin/codex", &["codex"]), ws2),
+    ]);
+    let tabs = &group(&m, "cmux").tabs;
+    assert_eq!(tabs.len(), 2, "one row per workspace");
+    let roots: Vec<u32> = tabs[0].sessions.iter().map(|s| s.root_pid).collect();
+    assert_eq!(roots, [111, 121]);
+    assert_eq!(tabs[1].sessions[0].root_pid, 131);
+}
+
+#[test]
+fn herdr_panes_are_tabs() {
+    // The server owns the panes; ids that two servers would share do not join them.
+    let pane = |p: ProcInfo| ProcInfo {
+        env: vec![("HERDR_TAB_ID".into(), "w1:t1".into())],
+        ..p
+    };
+    let m = build(vec![
+        proc(1, 0, "/usr/lib/systemd/systemd", &["/sbin/init"]),
+        proc(200, 1, "/usr/local/bin/herdr", &["herdr", "server"]),
+        pane(proc(210, 200, "/usr/bin/bash", &["-bash"])),
+        pane(proc(211, 210, "/usr/local/bin/codex", &["codex"])),
+        proc(300, 1, "/usr/local/bin/herdr", &["herdr", "server"]),
+        pane(proc(310, 300, "/usr/bin/bash", &["-bash"])),
+        pane(proc(311, 310, "/home/me/.local/bin/claude", &["claude"])),
+    ]);
+    assert!(m.orphans.is_empty(), "{:?}", m.orphans);
+    let tabs = &group(&m, "herdr").tabs;
+    assert_eq!(tabs.len(), 2);
+    assert_eq!(tabs[0].sessions[0].root_pid, 211);
+    assert_eq!(tabs[1].sessions[0].root_pid, 311);
+}
+
+#[test]
 fn parent_cycles_from_pid_reuse_do_not_hang() {
     // 100 started 200 and exited; within the same second a child of 200 reused PID 100.
     let (tx, rx) = std::sync::mpsc::channel();

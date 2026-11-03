@@ -584,6 +584,14 @@ exe = ["tabby"]
 path = ["/tabby.app/"]
 
 [[hosts]]
+id = "cmux"
+name = "cmux"
+exe = ["cmux"]
+path = ["/cmux.app/"]
+# A workspace (a sidebar tab) is set on everything in its terminals, as a UUID.
+tab_env = "CMUX_WORKSPACE_ID"
+
+[[hosts]]
 id = "linux-terminal"
 name = "Terminal"
 exe = ["gnome-terminal-server", "konsole", "xfce4-terminal", "tilix", "terminator", "xterm"]
@@ -608,6 +616,13 @@ exe = ["sshd", "sshd-session"]
 id = "tmux"
 name = "tmux"
 exe = ["tmux"]
+
+# Its tab ids (`HERDR_TAB_ID`) count up per server, so two sessions' servers reuse them: each
+# pane is a tab, like tmux's.
+[[hosts]]
+id = "herdr"
+name = "herdr"
+exe = ["herdr"]
 
 [[hosts]]
 id = "screen"

@@ -28,7 +28,7 @@ agentlens는 모든 프로세스에 대해 **누구의 것인가, 그 주인이 
 
 - **누구의 프로세스인지 압니다.** 에이전트 45종(Claude Code, Codex, opencode, Gemini CLI, Copilot CLI, Aider,
   Goose …)에 대해 호스트 → 탭 → 세션 → 프로세스 트리를 만듭니다. 지원 호스트는 Orca, VS Code, Cursor,
-  JetBrains, Windows Terminal, iTerm2, Ghostty, tmux, SSH 로그인, WSL 등입니다.
+  JetBrains, Windows Terminal, iTerm2, Ghostty, cmux, tmux, herdr, SSH 로그인, WSL 등입니다.
 - **이름이 아니라 근거로 잔여 프로세스를 찾습니다.** 세 가지 근거를 씁니다.
   - 계보: 세션 아래에서 본 프로세스를 기억합니다.
   - 출생 기록: 에이전트가 자식에 남기는 세션과 PID를 읽습니다.
@@ -119,9 +119,10 @@ phys_footprint, Linux는 상주 페이지에서 공유 페이지를 뺀 값(`sta
   실행 파일 이름과 argv[0] 둘 다 보므로 버전 이름으로 설치되는 실행 파일(`claude/versions/2.1.276`)도 잡힙니다.
 - **호스트/탭**: Orca, VS Code·Cursor·Windsurf(원격 서버·code-server 포함), Kiro, Antigravity, Trae, Zed, JetBrains,
   Claude Desktop, Windows Terminal, macOS Terminal, iTerm2, Ghostty, kitty, WezTerm, Alacritty, Warp,
-  Wave, Tabby, GNOME Terminal/Konsole 등, ego. SSH 로그인(`sshd`/`sshd-session`)과 tmux·screen도 호스트로
-  보고 로그인·패널 하나를 탭 하나로 묶습니다. 탭을 표시하는 환경변수를 넣어 주는 호스트는 그 값으로 묶습니다
-  (카탈로그의 `tab_env`/`label_env`: Orca는 `ORCA_TAB_ID`와 worktree 이름, Windows Terminal은 `WT_SESSION`).
+  Wave, Tabby, cmux, GNOME Terminal/Konsole 등, ego. SSH 로그인(`sshd`/`sshd-session`)과 tmux·herdr·screen도
+  호스트로 보고 로그인·패널 하나를 탭 하나로 묶습니다. 탭을 표시하는 환경변수를 넣어 주는 호스트는 그 값으로 묶습니다
+  (카탈로그의 `tab_env`/`label_env`: Orca는 `ORCA_TAB_ID`와 worktree 이름, Windows Terminal은 `WT_SESSION`,
+  cmux는 workspace의 `CMUX_WORKSPACE_ID`).
   `label_env` 값이 같은 탭은 한 행으로 합쳐지므로 Orca에서는 한 worktree의 탭들이 한 행 아래 세션으로 나뉩니다.
   카탈로그에 없는 프로그램이 에이전트를 띄우면 "(unregistered)" 그룹으로 자동으로 묶이고, `h`로 등록할 수 있습니다.
   등록은 규칙 파일 끝에 항목을 덧붙이는 방식이라 주석과 아직 다시 읽지 않은 편집 내용이 유지됩니다.
