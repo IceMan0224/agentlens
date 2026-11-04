@@ -102,16 +102,25 @@ hooks are for Claude Code only for now.
 | <img src="docs/images/agents/grok.png" width="16" height="16" alt=""> Grok CLI | `grok` | <img src="docs/images/agents/muse.png" width="16" height="16" alt=""> Muse | `muse` | <img src="docs/images/agents/dsh.png" width="16" height="16" alt=""> DSH | `dsh-tui` |
 | <img src="docs/images/agents/zcode.png" width="16" height="16" alt=""> ZCode | `zcode` | <img src="docs/images/agents/devin.png" width="16" height="16" alt=""> Devin | `devin` | <img src="docs/images/agents/jcode.png" width="16" height="16" alt=""> JCode | `jcode` |
 
-Icons are their projects' own, most of them from [Orca](https://github.com/stablyai/orca).
+Icons here and below are their projects' own; most agent icons come from
+[Orca](https://github.com/stablyai/orca).
 
-The host is the program an agent runs in:
+The host is the program an agent runs in. VS Code, Cursor and Windsurf include their remote
+servers (Remote-SSH, WSL) and code-server.
 
-| Kind | Hosts |
-|---|---|
-| Agent apps and editors | Orca, Claude Desktop, VS Code, Cursor, Windsurf (with their remote servers and code-server), Kiro, Antigravity, Trae, Zed, JetBrains IDEs |
-| Terminals | Windows Terminal, macOS Terminal, iTerm2, Ghostty, kitty, WezTerm, Alacritty, Warp, Wave, Tabby, cmux, GNOME Terminal, Konsole, Xfce Terminal, Tilix, Terminator, xterm |
-| Remote and multiplexers | SSH logins, WSL, tmux, herdr, screen |
-| Other | ego browser |
+| Host | Process | Host | Process | Host | Process |
+|---|---|---|---|---|---|
+| <img src="docs/images/hosts/orca.png" width="16" height="16" alt=""> Orca | `orca` | <img src="docs/images/agents/claude.svg" width="16" height="16" alt=""> Claude Desktop | `Claude.app`, `AnthropicClaude` | <img src="docs/images/hosts/vscode.png" width="16" height="16" alt=""> VS Code | `code` |
+| <img src="docs/images/agents/cursor.png" width="16" height="16" alt=""> Cursor | `cursor` | <img src="docs/images/hosts/windsurf.png" width="16" height="16" alt=""> Windsurf | `windsurf` | <img src="docs/images/agents/kiro.png" width="16" height="16" alt=""> Kiro | `kiro` |
+| <img src="docs/images/agents/antigravity.png" width="16" height="16" alt=""> Antigravity | `antigravity` | <img src="docs/images/agents/trae.png" width="16" height="16" alt=""> Trae | `trae` | <img src="docs/images/hosts/zed.png" width="16" height="16" alt=""> Zed | `zed` |
+| <img src="docs/images/hosts/jetbrains.png" width="16" height="16" alt=""> JetBrains IDEs | `idea64`, `pycharm64`, … | <img src="docs/images/hosts/windows-terminal.png" width="16" height="16" alt=""> Windows Terminal | `WindowsTerminal` | <img src="docs/images/hosts/macos-terminal.png" width="16" height="16" alt=""> Terminal (macOS) | `Terminal.app` |
+| <img src="docs/images/hosts/iterm2.png" width="16" height="16" alt=""> iTerm2 | `iTerm.app` | <img src="docs/images/hosts/ghostty.png" width="16" height="16" alt=""> Ghostty | `ghostty` | <img src="docs/images/hosts/kitty.png" width="16" height="16" alt=""> kitty | `kitty` |
+| <img src="docs/images/hosts/wezterm.png" width="16" height="16" alt=""> WezTerm | `wezterm-gui` | <img src="docs/images/hosts/alacritty.png" width="16" height="16" alt=""> Alacritty | `alacritty` | <img src="docs/images/hosts/warp.png" width="16" height="16" alt=""> Warp | `warp` |
+| <img src="docs/images/hosts/wave.png" width="16" height="16" alt=""> Wave | `wave` | <img src="docs/images/hosts/tabby.png" width="16" height="16" alt=""> Tabby | `tabby` | <img src="docs/images/hosts/cmux.png" width="16" height="16" alt=""> cmux | `cmux` |
+| <img src="docs/images/hosts/gnome-terminal.png" width="16" height="16" alt=""> GNOME Terminal | `gnome-terminal-server` | <img src="docs/images/hosts/konsole.png" width="16" height="16" alt=""> Konsole | `konsole` | <img src="docs/images/hosts/xfce-terminal.svg" width="16" height="16" alt=""> Xfce Terminal | `xfce4-terminal` |
+| <img src="docs/images/hosts/tilix.svg" width="16" height="16" alt=""> Tilix | `tilix` | <img src="docs/images/hosts/terminator.png" width="16" height="16" alt=""> Terminator | `terminator` | <img src="docs/images/hosts/xterm.png" width="16" height="16" alt=""> xterm | `xterm` |
+| <img src="docs/images/hosts/ssh.png" width="16" height="16" alt=""> SSH login | `sshd`, `sshd-session` | <img src="docs/images/hosts/wsl.png" width="16" height="16" alt=""> WSL | `SessionLeader` | <img src="docs/images/hosts/tmux.svg" width="16" height="16" alt=""> tmux | `tmux` |
+| <img src="docs/images/hosts/herdr.svg" width="16" height="16" alt=""> herdr | `herdr` | <img src="docs/images/hosts/screen.png" width="16" height="16" alt=""> screen | `screen` | <img src="docs/images/hosts/ego.png" width="16" height="16" alt=""> ego browser | `ego` |
 
 Hosts that set a variable per tab are split by it: Orca (`ORCA_TAB_ID`, with one row per
 worktree), Windows Terminal (`WT_SESSION`) and cmux (`CMUX_WORKSPACE_ID`, one tab per
