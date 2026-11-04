@@ -193,8 +193,15 @@ fn match_host(c: &Catalog, p: &ProcInfo) -> Option<usize> {
     let s = stem(p);
     let exe = exe_norm(p);
     let file = exe_stem(&exe);
+    // A host run as a script (a daemon under `node`) is known by its package path.
+    let cmd = has(&c.processes.runtimes, &s).then(|| cmd_norm(p));
     c.hosts.iter().position(|h| {
-        has(&h.exe, &s) || (!file.is_empty() && has(&h.exe, file)) || h.path.iter().any(|f| exe.contains(f.as_str()))
+        has(&h.exe, &s)
+            || (!file.is_empty() && has(&h.exe, file))
+            || h.path.iter().any(|f| exe.contains(f.as_str()))
+            || cmd
+                .as_deref()
+                .is_some_and(|cmd| h.cmd.iter().any(|f| cmd.contains(f.as_str())))
     })
 }
 

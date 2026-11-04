@@ -147,6 +147,9 @@ pub struct HostDef {
     /// Substrings of the executable path.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub path: Vec<String>,
+    /// Package paths matched against the command line of a runtime running the host.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub cmd: Vec<String>,
     /// Commands on `PATH` that show the host is installed, for one whose process goes by
     /// another name.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -275,6 +278,7 @@ impl Catalog {
                     }
                     push_new(&mut def.exe, host.exe);
                     push_new(&mut def.path, host.path);
+                    push_new(&mut def.cmd, host.cmd);
                     push_new(&mut def.command, host.command);
                     push_new(&mut def.app, host.app);
                     push_new(&mut def.traces, host.traces);
@@ -329,6 +333,7 @@ impl Catalog {
             lower(&mut host.command);
             lower(&mut host.app);
             paths(&mut host.path);
+            paths(&mut host.cmd);
             paths(&mut host.traces);
             if host.name.is_empty() {
                 host.name = host.id.clone();

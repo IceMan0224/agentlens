@@ -437,6 +437,7 @@ name = "JCode"
 exe = ["jcode"]
 
 # Hosts: programs whose children are agent sessions. `path` matches the executable path.
+# `cmd` lists package paths that identify a host run by a runtime (`node`).
 # `command` and `app` only tell whether a host is installed: commands on PATH, and names in the
 # system's app launchers (Start Menu shortcuts, `.desktop` files, macOS bundles), for a host
 # they do not know by its `exe` names.
@@ -454,6 +455,18 @@ tab_env = "ORCA_TAB_ID"
 label_env = "ORCA_WORKTREE_ID"
 launch_env = "ORCA_AGENT_LAUNCH"
 traces = ["/orca/agent-hooks/"]
+
+# Agents and terminals run under its daemon: the desktop app's own executable, or `node` with
+# the server package after `npm i -g @getpaseo/cli`.
+[[hosts]]
+id = "paseo"
+name = "Paseo"
+exe = ["paseo"]
+path = ["/paseo.app/"]
+cmd = ["/@getpaseo/server/"]
+# Set per terminal; agents it starts itself carry their id instead, as does all they start.
+tab_env = "PASEO_TERMINAL_ID"
+launch_env = "PASEO_AGENT_ID"
 
 [[hosts]]
 id = "claude-desktop"
