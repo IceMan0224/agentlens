@@ -89,16 +89,23 @@ agentlens 通过命令名识别以下 45 种智能体，包括通过 npm 安装�
 | <img src="docs/images/agents/grok.png" width="16" height="16" alt=""> Grok CLI | `grok` | <img src="docs/images/agents/muse.png" width="16" height="16" alt=""> Muse | `muse` | <img src="docs/images/agents/dsh.png" width="16" height="16" alt=""> DSH | `dsh-tui` |
 | <img src="docs/images/agents/zcode.png" width="16" height="16" alt=""> ZCode | `zcode` | <img src="docs/images/agents/devin.png" width="16" height="16" alt=""> Devin | `devin` | <img src="docs/images/agents/jcode.png" width="16" height="16" alt=""> JCode | `jcode` |
 
-图标归各项目所有，大部分取自 [Orca](https://github.com/stablyai/orca)。
+图标归各项目所有，智能体图标大部分取自 [Orca](https://github.com/stablyai/orca)。
 
-宿主是智能体运行所在的程序：
+宿主是智能体运行所在的程序。VS Code、Cursor 和 Windsurf 也包括它们的远程服务器（Remote-SSH、WSL）和 code-server。
 
-| 类型 | 宿主 |
-|---|---|
-| 智能体应用和编辑器 | Orca、Claude Desktop、VS Code、Cursor、Windsurf（含其远程服务器和 code-server）、Kiro、Antigravity、Trae、Zed、JetBrains IDE |
-| 终端 | Windows Terminal、macOS Terminal、iTerm2、Ghostty、kitty、WezTerm、Alacritty、Warp、Wave、Tabby、cmux、GNOME Terminal、Konsole、Xfce Terminal、Tilix、Terminator、xterm |
-| 远程和终端复用器 | SSH 登录、WSL、tmux、herdr、screen |
-| 其他 | ego browser |
+| 宿主 | 进程 | 宿主 | 进程 | 宿主 | 进程 |
+|---|---|---|---|---|---|
+| <img src="docs/images/hosts/orca.png" width="16" height="16" alt=""> Orca | `orca` | <img src="docs/images/agents/claude.svg" width="16" height="16" alt=""> Claude Desktop | `Claude.app`, `AnthropicClaude` | <img src="docs/images/hosts/vscode.png" width="16" height="16" alt=""> VS Code | `code` |
+| <img src="docs/images/agents/cursor.png" width="16" height="16" alt=""> Cursor | `cursor` | <img src="docs/images/hosts/windsurf.png" width="16" height="16" alt=""> Windsurf | `windsurf` | <img src="docs/images/agents/kiro.png" width="16" height="16" alt=""> Kiro | `kiro` |
+| <img src="docs/images/agents/antigravity.png" width="16" height="16" alt=""> Antigravity | `antigravity` | <img src="docs/images/agents/trae.png" width="16" height="16" alt=""> Trae | `trae` | <img src="docs/images/hosts/zed.png" width="16" height="16" alt=""> Zed | `zed` |
+| <img src="docs/images/hosts/jetbrains.png" width="16" height="16" alt=""> JetBrains IDEs | `idea64`, `pycharm64`, … | <img src="docs/images/hosts/windows-terminal.png" width="16" height="16" alt=""> Windows Terminal | `WindowsTerminal` | <img src="docs/images/hosts/macos-terminal.png" width="16" height="16" alt=""> Terminal (macOS) | `Terminal.app` |
+| <img src="docs/images/hosts/iterm2.png" width="16" height="16" alt=""> iTerm2 | `iTerm.app` | <img src="docs/images/hosts/ghostty.png" width="16" height="16" alt=""> Ghostty | `ghostty` | <img src="docs/images/hosts/kitty.png" width="16" height="16" alt=""> kitty | `kitty` |
+| <img src="docs/images/hosts/wezterm.png" width="16" height="16" alt=""> WezTerm | `wezterm-gui` | <img src="docs/images/hosts/alacritty.png" width="16" height="16" alt=""> Alacritty | `alacritty` | <img src="docs/images/hosts/warp.png" width="16" height="16" alt=""> Warp | `warp` |
+| <img src="docs/images/hosts/wave.png" width="16" height="16" alt=""> Wave | `wave` | <img src="docs/images/hosts/tabby.png" width="16" height="16" alt=""> Tabby | `tabby` | <img src="docs/images/hosts/cmux.png" width="16" height="16" alt=""> cmux | `cmux` |
+| <img src="docs/images/hosts/gnome-terminal.png" width="16" height="16" alt=""> GNOME Terminal | `gnome-terminal-server` | <img src="docs/images/hosts/konsole.png" width="16" height="16" alt=""> Konsole | `konsole` | <img src="docs/images/hosts/xfce-terminal.svg" width="16" height="16" alt=""> Xfce Terminal | `xfce4-terminal` |
+| <img src="docs/images/hosts/tilix.svg" width="16" height="16" alt=""> Tilix | `tilix` | <img src="docs/images/hosts/terminator.png" width="16" height="16" alt=""> Terminator | `terminator` | <img src="docs/images/hosts/xterm.png" width="16" height="16" alt=""> xterm | `xterm` |
+| <img src="docs/images/hosts/ssh.png" width="16" height="16" alt=""> SSH 登录 | `sshd`, `sshd-session` | <img src="docs/images/hosts/wsl.png" width="16" height="16" alt=""> WSL | `SessionLeader` | <img src="docs/images/hosts/tmux.svg" width="16" height="16" alt=""> tmux | `tmux` |
+| <img src="docs/images/hosts/herdr.svg" width="16" height="16" alt=""> herdr | `herdr` | <img src="docs/images/hosts/screen.png" width="16" height="16" alt=""> screen | `screen` | <img src="docs/images/hosts/ego.png" width="16" height="16" alt=""> ego browser | `ego` |
 
 为每个标签页设置变量的宿主按该变量划分标签页：Orca（`ORCA_TAB_ID`，每个 worktree 一行）、Windows Terminal
 （`WT_SESSION`）和 cmux（`CMUX_WORKSPACE_ID`，每个 workspace 一个标签页）。每个 SSH 登录、每个 tmux、herdr 或 screen
