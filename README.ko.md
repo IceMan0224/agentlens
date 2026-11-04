@@ -4,7 +4,9 @@
   <b>코딩 에이전트가 띄운 모든 프로세스를 보고, 남겨진 것을 안전하게 정리합니다.</b>
 </p>
 
-<p align="center"><a href="README.md">English</a> | <b>한국어</b></p>
+<p align="center">
+  <a href="README.md">English</a> · <b>한국어</b> · <a href="README.ja.md">日本語</a> · <a href="README.zh.md">简体中文</a>
+</p>
 
 <p align="center">
   <img src="docs/images/demo.gif" alt="agentlens: 호스트·탭별 에이전트 세션, 끝난 세션이 남긴 MCP 서버와 판정 근거, 포트와 SSH 연결" width="100%">
@@ -26,7 +28,7 @@ agentlens는 모든 프로세스에 대해 **누구의 것인가, 그 주인이 
 
 ## 특장점
 
-- **누구의 프로세스인지 압니다.** 에이전트 45종(Claude Code, Codex, opencode, Gemini CLI, Copilot CLI, Aider,
+- **누구의 프로세스인지 압니다.** [에이전트 45종](#지원-에이전트와-호스트)(Claude Code, Codex, opencode, Gemini CLI, Copilot CLI, Aider,
   Goose …)에 대해 호스트 → 탭 → 세션 → 프로세스 트리를 만듭니다. 지원 호스트는 Orca, VS Code, Cursor,
   JetBrains, Windows Terminal, iTerm2, Ghostty, cmux, tmux, herdr, SSH 로그인, WSL 등입니다.
 - **이름이 아니라 근거로 잔여 프로세스를 찾습니다.** 세 가지 근거를 씁니다.
@@ -64,6 +66,41 @@ CPU%는 시스템 전체를 100으로 계산하고, 하단 줄에는 현재 화�
 | ![네트워크 화면](docs/images/network.png) | ![설정 화면](docs/images/settings.png) |
 
 화면은 지어낸 스냅샷을 재생(`--replay`)해 찍었으므로 실제 PC의 정보는 없습니다.
+
+## 지원 에이전트와 호스트
+
+아래 45개 에이전트를 명령 이름으로 알아봅니다. npm으로 설치해 `node`로 도는 것도 포함합니다. **굵게** 표시한
+에이전트는 설정 화면에서 agentlens MCP 서버를 등록할 수 있고, 에이전트 훅은 지금 Claude Code만 지원합니다.
+
+| 에이전트 | 명령 | 에이전트 | 명령 | 에이전트 | 명령 |
+|---|---|---|---|---|---|
+| **Claude Code** | `claude` | Claude Agent Teams | Orca가 실행 | **CodeBuddy** | `codebuddy` |
+| OpenClaude | `openclaude` | **Codex** | `codex` | Autohand | `autohand` |
+| Ante | `ante` | Trae CLI | `traecli` | **OpenCode** | `opencode` |
+| OpenCode 2 | `opencode2` | MiMo Code | `mimo` | Pi | `pi` |
+| OMP | `omp` | Prime Agent | `prime-agent` | **Qoder** | `qodercli` |
+| Qoder CN | `qoderclicn` | **Gemini CLI** | `gemini` | Antigravity CLI | `agy` |
+| Aider | `aider` | Goose | `goose` | **Amp** | `amp` |
+| **Kilo Code** | `kilo` | **Kiro CLI** | `kiro-cli` | Crush | `crush` |
+| **Auggie** | `auggie` | Cline | `cline` | Freebuff | `freebuff` |
+| Codebuff | `codebuff` | Command Code | `command-code` | Continue | `cn` |
+| **Cursor Agent** | `cursor-agent` | **Droid** | `droid` | **Kimi** | `kimi` |
+| Mistral Vibe | `vibe` | **Qwen Code** | `qwen` | **Rovo Dev** | `acli` |
+| Hermes | `hermes` | OpenClaw | `openclaw` | **GitHub Copilot CLI** | `copilot` |
+| Grok CLI | `grok` | Muse | `muse` | DSH | `dsh-tui` |
+| ZCode | `zcode` | Devin | `devin` | JCode | `jcode` |
+
+호스트는 에이전트가 실행되는 프로그램입니다.
+
+| 종류 | 호스트 |
+|---|---|
+| 에이전트 앱·에디터 | Orca, Claude Desktop, VS Code, Cursor, Windsurf(원격 서버·code-server 포함), Kiro, Antigravity, Trae, Zed, JetBrains IDE |
+| 터미널 | Windows Terminal, macOS Terminal, iTerm2, Ghostty, kitty, WezTerm, Alacritty, Warp, Wave, Tabby, cmux, GNOME Terminal, Konsole, Xfce Terminal, Tilix, Terminator, xterm |
+| 원격·멀티플렉서 | SSH 로그인, WSL, tmux, herdr, screen |
+| 기타 | ego browser |
+
+탭 묶는 방법은 [어떻게 판정하나](#어떻게-판정하나)의 호스트/탭 항목에 있습니다. 목록에 없는 프로그램이 에이전트를 띄우면
+"(unregistered)"로 묶이고, Sessions에서 `h`로 등록할 수 있습니다.
 
 ## 설치와 실행
 

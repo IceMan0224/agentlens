@@ -10,7 +10,9 @@
   <img alt="Windows | macOS | Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg">
 </p>
 
-<p align="center"><b>English</b> | <a href="README.ko.md">한국어</a></p>
+<p align="center">
+  <b>English</b> · <a href="README.ko.md">한국어</a> · <a href="README.ja.md">日本語</a> · <a href="README.zh.md">简体中文</a>
+</p>
 
 <p align="center">
   <img src="docs/images/demo.gif" alt="agentlens: agent sessions grouped by host and tab, a closed session's leftover MCP server with its evidence, listening ports and SSH connections" width="100%">
@@ -35,8 +37,8 @@ behind from evidence rather than names, and ends them only when it is safe to.
 
 ## Highlights
 
-- **Knows whose process it is.** It builds a host → tab → session → process tree for 45 agents
-  (Claude Code, Codex, opencode, Gemini CLI, Copilot CLI, Aider, Goose, …). Supported hosts include
+- **Knows whose process it is.** It builds a host → tab → session → process tree for
+  [45 agents](#supported-agents-and-hosts) (Claude Code, Codex, opencode, Gemini CLI, Copilot CLI, Aider, Goose, …). Supported hosts include
   Orca, VS Code, Cursor, JetBrains, Windows Terminal, iTerm2, Ghostty, cmux, tmux, herdr, SSH logins
   and WSL.
 - **Finds leftovers by evidence, not by name.** It records what it saw under a session (lineage). It
@@ -75,6 +77,44 @@ counts the whole machine as 100, and the footer lists the keys of the current vi
 
 The screenshots replay a made-up snapshot (`--replay`), so no real machine is shown. The UI is
 also available in Korean ([screenshot](docs/images/sessions-ko.png)).
+
+## Supported agents and hosts
+
+agentlens recognizes these 45 agents by their command, npm installs running under `node`
+included. For the ones in **bold**, Settings can register its MCP server with the agent; agent
+hooks are for Claude Code only for now.
+
+| Agent | Command | Agent | Command | Agent | Command |
+|---|---|---|---|---|---|
+| **Claude Code** | `claude` | Claude Agent Teams | via Orca | **CodeBuddy** | `codebuddy` |
+| OpenClaude | `openclaude` | **Codex** | `codex` | Autohand | `autohand` |
+| Ante | `ante` | Trae CLI | `traecli` | **OpenCode** | `opencode` |
+| OpenCode 2 | `opencode2` | MiMo Code | `mimo` | Pi | `pi` |
+| OMP | `omp` | Prime Agent | `prime-agent` | **Qoder** | `qodercli` |
+| Qoder CN | `qoderclicn` | **Gemini CLI** | `gemini` | Antigravity CLI | `agy` |
+| Aider | `aider` | Goose | `goose` | **Amp** | `amp` |
+| **Kilo Code** | `kilo` | **Kiro CLI** | `kiro-cli` | Crush | `crush` |
+| **Auggie** | `auggie` | Cline | `cline` | Freebuff | `freebuff` |
+| Codebuff | `codebuff` | Command Code | `command-code` | Continue | `cn` |
+| **Cursor Agent** | `cursor-agent` | **Droid** | `droid` | **Kimi** | `kimi` |
+| Mistral Vibe | `vibe` | **Qwen Code** | `qwen` | **Rovo Dev** | `acli` |
+| Hermes | `hermes` | OpenClaw | `openclaw` | **GitHub Copilot CLI** | `copilot` |
+| Grok CLI | `grok` | Muse | `muse` | DSH | `dsh-tui` |
+| ZCode | `zcode` | Devin | `devin` | JCode | `jcode` |
+
+The host is the program an agent runs in:
+
+| Kind | Hosts |
+|---|---|
+| Agent apps and editors | Orca, Claude Desktop, VS Code, Cursor, Windsurf (with their remote servers and code-server), Kiro, Antigravity, Trae, Zed, JetBrains IDEs |
+| Terminals | Windows Terminal, macOS Terminal, iTerm2, Ghostty, kitty, WezTerm, Alacritty, Warp, Wave, Tabby, cmux, GNOME Terminal, Konsole, Xfce Terminal, Tilix, Terminator, xterm |
+| Remote and multiplexers | SSH logins, WSL, tmux, herdr, screen |
+| Other | ego browser |
+
+Hosts that set a variable per tab are split by it: Orca (`ORCA_TAB_ID`, with one row per
+worktree), Windows Terminal (`WT_SESSION`) and cmux (`CMUX_WORKSPACE_ID`, one tab per
+workspace). Each SSH login and each tmux, herdr or screen pane is a tab. A program not listed here
+that starts an agent shows up as "(unregistered)", and `h` in Sessions adds it to your rules.
 
 ## Installation
 
