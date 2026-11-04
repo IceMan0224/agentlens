@@ -86,21 +86,23 @@ hooks are for Claude Code only for now.
 
 | Agent | Command | Agent | Command | Agent | Command |
 |---|---|---|---|---|---|
-| **Claude Code** | `claude` | Claude Agent Teams | via Orca | **CodeBuddy** | `codebuddy` |
-| OpenClaude | `openclaude` | **Codex** | `codex` | Autohand | `autohand` |
-| Ante | `ante` | Trae CLI | `traecli` | **OpenCode** | `opencode` |
-| OpenCode 2 | `opencode2` | MiMo Code | `mimo` | Pi | `pi` |
-| OMP | `omp` | Prime Agent | `prime-agent` | **Qoder** | `qodercli` |
-| Qoder CN | `qoderclicn` | **Gemini CLI** | `gemini` | Antigravity CLI | `agy` |
-| Aider | `aider` | Goose | `goose` | **Amp** | `amp` |
-| **Kilo Code** | `kilo` | **Kiro CLI** | `kiro-cli` | Crush | `crush` |
-| **Auggie** | `auggie` | Cline | `cline` | Freebuff | `freebuff` |
-| Codebuff | `codebuff` | Command Code | `command-code` | Continue | `cn` |
-| **Cursor Agent** | `cursor-agent` | **Droid** | `droid` | **Kimi** | `kimi` |
-| Mistral Vibe | `vibe` | **Qwen Code** | `qwen` | **Rovo Dev** | `acli` |
-| Hermes | `hermes` | OpenClaw | `openclaw` | **GitHub Copilot CLI** | `copilot` |
-| Grok CLI | `grok` | Muse | `muse` | DSH | `dsh-tui` |
-| ZCode | `zcode` | Devin | `devin` | JCode | `jcode` |
+| <img src="docs/images/agents/claude.svg" width="16" height="16" alt=""> **Claude Code** | `claude` | <img src="docs/images/agents/claude.svg" width="16" height="16" alt=""> Claude Agent Teams | via Orca | <img src="docs/images/agents/codebuddy.png" width="16" height="16" alt=""> **CodeBuddy** | `codebuddy` |
+| <img src="docs/images/agents/openclaude.png" width="16" height="16" alt=""> OpenClaude | `openclaude` | <img src="docs/images/agents/codex.png" width="16" height="16" alt=""> **Codex** | `codex` | <img src="docs/images/agents/autohand.png" width="16" height="16" alt=""> Autohand | `autohand` |
+| <img src="docs/images/agents/ante.png" width="16" height="16" alt=""> Ante | `ante` | <img src="docs/images/agents/trae.png" width="16" height="16" alt=""> Trae CLI | `traecli` | <img src="docs/images/agents/opencode.png" width="16" height="16" alt=""> **OpenCode** | `opencode` |
+| <img src="docs/images/agents/opencode.png" width="16" height="16" alt=""> OpenCode 2 | `opencode2` | <img src="docs/images/agents/mimo-code.png" width="16" height="16" alt=""> MiMo Code | `mimo` | <img src="docs/images/agents/pi.svg" width="16" height="16" alt=""> Pi | `pi` |
+| <img src="docs/images/agents/omp.svg" width="16" height="16" alt=""> OMP | `omp` | <img src="docs/images/agents/prime-agent.png" width="16" height="16" alt=""> Prime Agent | `prime-agent` | <img src="docs/images/agents/qoder.png" width="16" height="16" alt=""> **Qoder** | `qodercli` |
+| <img src="docs/images/agents/qoder-cn.png" width="16" height="16" alt=""> Qoder CN | `qoderclicn` | <img src="docs/images/agents/gemini.png" width="16" height="16" alt=""> **Gemini CLI** | `gemini` | <img src="docs/images/agents/antigravity.png" width="16" height="16" alt=""> Antigravity CLI | `agy` |
+| <img src="docs/images/agents/aider.png" width="16" height="16" alt=""> Aider | `aider` | <img src="docs/images/agents/goose.png" width="16" height="16" alt=""> Goose | `goose` | <img src="docs/images/agents/amp.png" width="16" height="16" alt=""> **Amp** | `amp` |
+| <img src="docs/images/agents/kilo.png" width="16" height="16" alt=""> **Kilo Code** | `kilo` | <img src="docs/images/agents/kiro.png" width="16" height="16" alt=""> **Kiro CLI** | `kiro-cli` | <img src="docs/images/agents/crush.png" width="16" height="16" alt=""> Crush | `crush` |
+| <img src="docs/images/agents/aug.png" width="16" height="16" alt=""> **Auggie** | `auggie` | <img src="docs/images/agents/cline.png" width="16" height="16" alt=""> Cline | `cline` | <img src="docs/images/agents/freebuff.png" width="16" height="16" alt=""> Freebuff | `freebuff` |
+| <img src="docs/images/agents/codebuff.png" width="16" height="16" alt=""> Codebuff | `codebuff` | <img src="docs/images/agents/command-code.png" width="16" height="16" alt=""> Command Code | `command-code` | <img src="docs/images/agents/continue.png" width="16" height="16" alt=""> Continue | `cn` |
+| <img src="docs/images/agents/cursor.png" width="16" height="16" alt=""> **Cursor Agent** | `cursor-agent` | <img src="docs/images/agents/droid.png" width="16" height="16" alt=""> **Droid** | `droid` | <img src="docs/images/agents/kimi.png" width="16" height="16" alt=""> **Kimi** | `kimi` |
+| <img src="docs/images/agents/mistral-vibe.png" width="16" height="16" alt=""> Mistral Vibe | `vibe` | <img src="docs/images/agents/qwen-code.png" width="16" height="16" alt=""> **Qwen Code** | `qwen` | <img src="docs/images/agents/rovo.png" width="16" height="16" alt=""> **Rovo Dev** | `acli` |
+| <img src="docs/images/agents/hermes.png" width="16" height="16" alt=""> Hermes | `hermes` | <img src="docs/images/agents/openclaw.png" width="16" height="16" alt=""> OpenClaw | `openclaw` | <img src="docs/images/agents/copilot.png" width="16" height="16" alt=""> **GitHub Copilot CLI** | `copilot` |
+| <img src="docs/images/agents/grok.png" width="16" height="16" alt=""> Grok CLI | `grok` | <img src="docs/images/agents/muse.png" width="16" height="16" alt=""> Muse | `muse` | <img src="docs/images/agents/dsh.png" width="16" height="16" alt=""> DSH | `dsh-tui` |
+| <img src="docs/images/agents/zcode.png" width="16" height="16" alt=""> ZCode | `zcode` | <img src="docs/images/agents/devin.png" width="16" height="16" alt=""> Devin | `devin` | <img src="docs/images/agents/jcode.png" width="16" height="16" alt=""> JCode | `jcode` |
+
+Icons are their projects' own, most of them from [Orca](https://github.com/stablyai/orca).
 
 The host is the program an agent runs in:
 
