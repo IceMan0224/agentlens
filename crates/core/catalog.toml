@@ -456,14 +456,15 @@ label_env = "ORCA_WORKTREE_ID"
 launch_env = "ORCA_AGENT_LAUNCH"
 traces = ["/orca/agent-hooks/"]
 
-# Agents and terminals run under its daemon: the desktop app's own executable, or `node` with
-# the server package after `npm i -g @getpaseo/cli`.
+# The daemon starts agents, and a detached terminal worker runs the terminals. They run on the
+# desktop app's own executable, or on `node` after `npm i -g @getpaseo/cli`, where the daemon
+# retitles itself (on Windows its command line keeps the server package).
 [[hosts]]
 id = "paseo"
 name = "Paseo"
 exe = ["paseo"]
 path = ["/paseo.app/"]
-cmd = ["/@getpaseo/server/"]
+cmd = ["paseo supervisor", "paseo daemon", "--paseo-terminal-worker", "/@getpaseo/server/"]
 # Set per terminal; agents it starts itself carry their id instead, as does all they start.
 tab_env = "PASEO_TERMINAL_ID"
 launch_env = "PASEO_AGENT_ID"

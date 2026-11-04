@@ -96,7 +96,7 @@ CPU%는 시스템 전체를 100으로 계산하고, 하단 줄에는 현재 화�
 
 | 호스트 | 프로세스 | 호스트 | 프로세스 | 호스트 | 프로세스 |
 |---|---|---|---|---|---|
-| <img src="docs/images/hosts/orca.png" width="16" height="16" alt=""> Orca | `orca` | <img src="docs/images/hosts/paseo.png" width="16" height="16" alt=""> Paseo | `Paseo`, `node …/@getpaseo/server/…` | <img src="docs/images/agents/claude.svg" width="16" height="16" alt=""> Claude Desktop | `Claude.app`, `AnthropicClaude` |
+| <img src="docs/images/hosts/orca.png" width="16" height="16" alt=""> Orca | `orca` | <img src="docs/images/hosts/paseo.png" width="16" height="16" alt=""> Paseo | `Paseo`, `Paseo Daemon` (`node`) | <img src="docs/images/agents/claude.svg" width="16" height="16" alt=""> Claude Desktop | `Claude.app`, `AnthropicClaude` |
 | <img src="docs/images/hosts/vscode.png" width="16" height="16" alt=""> VS Code | `code` | <img src="docs/images/agents/cursor.png" width="16" height="16" alt=""> Cursor | `cursor` | <img src="docs/images/hosts/windsurf.png" width="16" height="16" alt=""> Windsurf | `windsurf` |
 | <img src="docs/images/agents/kiro.png" width="16" height="16" alt=""> Kiro | `kiro` | <img src="docs/images/agents/antigravity.png" width="16" height="16" alt=""> Antigravity | `antigravity` | <img src="docs/images/agents/trae.png" width="16" height="16" alt=""> Trae | `trae` |
 | <img src="docs/images/hosts/zed.png" width="16" height="16" alt=""> Zed | `zed` | <img src="docs/images/hosts/jetbrains.png" width="16" height="16" alt=""> JetBrains IDEs | `idea64`, `pycharm64`, … | <img src="docs/images/hosts/windows-terminal.png" width="16" height="16" alt=""> Windows Terminal | `WindowsTerminal` |
@@ -171,7 +171,7 @@ phys_footprint, Linux는 상주 페이지에서 공유 페이지를 뺀 값(`sta
   (카탈로그의 `tab_env`/`label_env`: Orca는 `ORCA_TAB_ID`와 worktree 이름, Windows Terminal은 `WT_SESSION`,
   cmux는 workspace의 `CMUX_WORKSPACE_ID`, Paseo는 터미널마다 `PASEO_TERMINAL_ID`이고 Paseo가 직접 띄운 에이전트는
   각각 탭 하나).
-  npm으로 설치한 Paseo처럼 `node`로 도는 호스트는 명령줄의 패키지 경로(카탈로그의 `cmd`)로 알아봅니다.
+  npm으로 설치한 Paseo처럼 `node`로 도는 호스트는 명령줄(카탈로그의 `cmd`)로 알아봅니다.
   `label_env` 값이 같은 탭은 한 행으로 합쳐지므로 Orca에서는 한 worktree의 탭들이 한 행 아래 세션으로 나뉩니다.
   카탈로그에 없는 프로그램이 에이전트를 띄우면 "(unregistered)" 그룹으로 자동으로 묶이고, `h`로 등록할 수 있습니다.
   등록은 규칙 파일 끝에 항목을 덧붙이는 방식이라 주석과 아직 다시 읽지 않은 편집 내용이 유지됩니다.

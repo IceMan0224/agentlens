@@ -232,17 +232,21 @@ fn herdr_panes_are_tabs() {
 
 #[test]
 fn paseo_daemon_under_node_is_a_host() {
-    // `npm i -g @getpaseo/cli` runs the daemon as `node`, detached; its terminals and the agents
-    // it starts itself are its tabs, not leftovers of an unknown program.
-    let server = "/usr/local/lib/node_modules/@getpaseo/server/dist/scripts/supervisor-entrypoint.js";
+    // As Paseo 0.15 runs from `npm i -g @getpaseo/cli` on macOS: a retitled supervisor and
+    // daemon, and a detached terminal worker, all on `node`. Its terminals and the agents it
+    // starts itself are its tabs, and the detached worker is no leftover.
+    let node = "/opt/homebrew/Cellar/node/24.2.0/bin/node";
+    let worker = "/Users/me/.paseo/terminal-worker/0.15.0-09a73ff83cc7/terminal-worker.mjs";
     let with = |p: ProcInfo, key: &str, value: &str| ProcInfo {
         env: vec![(key.into(), value.into())],
         ..p
     };
     let m = build(vec![
         proc(1, 0, "/sbin/launchd", &[]),
-        proc(400, 1, "/usr/local/bin/node", &["node", server]),
-        with(proc(410, 400, "/bin/zsh", &["-zsh"]), "PASEO_TERMINAL_ID", "t1"),
+        proc(300, 1, node, &["Paseo Supervisor"]),
+        proc(400, 300, node, &["Paseo Daemon"]),
+        proc(401, 1, node, &[node, worker, "--paseo-terminal-worker", "dce52d30"]),
+        with(proc(410, 401, "/bin/zsh", &["-zsh"]), "PASEO_TERMINAL_ID", "t1"),
         with(
             proc(411, 410, "/usr/local/bin/claude", &["claude"]),
             "PASEO_TERMINAL_ID",
@@ -256,7 +260,7 @@ fn paseo_daemon_under_node_is_a_host() {
     ]);
     assert!(m.orphans.is_empty(), "{:?}", m.orphans);
     let paseo = group(&m, "paseo");
-    assert_eq!(paseo.host_pids, [400]);
+    assert_eq!(paseo.host_pids, [300, 400, 401]);
     let roots: Vec<u32> = paseo.tabs.iter().map(|t| t.sessions[0].root_pid).collect();
     assert_eq!(roots, [411, 420]);
     assert_eq!(paseo.tabs[0].tab_ids, ["paseo:t1"]);
