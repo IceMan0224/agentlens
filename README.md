@@ -45,6 +45,9 @@ behind from evidence rather than names, and ends them only when it is safe to.
   reads the session and PID that agents write into everything they start (birth record), and on
   Windows it checks whether anyone can still talk to a stdio server. Every candidate shows the
   evidence, for example `owner-gone, from session Claude Code @ Orca / acme/web-app, agent-infra`.
+- **Cleans up Docker containers too.** It groups containers by compose project and shows the
+  checkout each was started from and the session working there. It proposes projects whose checkout
+  is gone, stops running containers and removes stopped ones, and keeps volumes and images.
 - **Safe by design.**
   - It never ends hosts, system processes, its own terminal, or anything you `protect`.
   - It ends parents before children and re-checks each PID's start time right before ending it.
