@@ -10,7 +10,7 @@ pub struct Target {
     pub name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct KillPlan {
     /// Parents before children, so no parent can react to a child's exit (run its next
     /// command, restart it) before it is ended itself. Each target is identified by PID and

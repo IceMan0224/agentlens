@@ -1,5 +1,6 @@
 pub mod actions;
 pub mod catalog;
+pub mod containers;
 pub mod health;
 pub mod hooks;
 pub mod install;
