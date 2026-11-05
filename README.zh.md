@@ -34,7 +34,8 @@ agentlens 对每个进程回答两个问题：**它是谁的？它的主人还�
 
 - **知道进程属于谁。** 为 [45 种智能体](#支持的智能体与宿主)（Claude Code、Codex、opencode、Gemini CLI、Copilot CLI、
   Aider、Goose 等）构建 宿主 → 标签页 → 会话 → 进程 的树。支持的宿主包括 Orca、Paseo、VS Code、Cursor、JetBrains、
-  Windows Terminal、iTerm2、Ghostty、cmux、tmux、herdr、SSH 登录和 WSL。
+  Windows Terminal、iTerm2、Ghostty、cmux、tmux、herdr、SSH 登录和 WSL。智能体在后台启动的会话（通过 WMI 或
+  `setsid` 启动的守护进程）会归入 *Detached from <智能体>*，并标出其工作文件夹和来源标签页。
 - **凭证据而不是名字找出遗留进程。** 它记录在会话下看到过的进程（谱系）；读取智能体写入其启动的所有进程中的会话和 PID
   （出生记录）；在 Windows 上还会检查是否还有人能与 stdio 服务器通信。每个候选都会显示依据，例如
   `owner-gone, from session Claude Code @ Orca / acme/web-app, agent-infra`。
@@ -60,7 +61,7 @@ agentlens 对每个进程回答两个问题：**它是谁的？它的主人还�
 
 ![Sessions 视图](docs/images/sessions.png)
 
-| Cleanup：候选及其依据 | Ports：谁在哪里监听 |
+| Cleanup：按来源标签页列出的候选及其依据 | Ports：谁在哪里监听（按标签页） |
 |---|---|
 | ![Cleanup 视图](docs/images/cleanup.png) | ![Ports 视图](docs/images/ports.png) |
 | **Network：SSH 连接和密钥** | **Settings：清理、安全、智能体钩子** |

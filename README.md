@@ -40,7 +40,8 @@ behind from evidence rather than names, and ends them only when it is safe to.
 - **Knows whose process it is.** It builds a host → tab → session → process tree for
   [45 agents](#supported-agents-and-hosts) (Claude Code, Codex, opencode, Gemini CLI, Copilot CLI, Aider, Goose, …). Supported hosts include
   Orca, Paseo, VS Code, Cursor, JetBrains, Windows Terminal, iTerm2, Ghostty, cmux, tmux, herdr, SSH logins
-  and WSL.
+  and WSL. A session an agent started in the background (a daemon launched through WMI or `setsid`)
+  is listed as *Detached from <agent>*, with the folder it works in and the tab it came from.
 - **Finds leftovers by evidence, not by name.** It records what it saw under a session (lineage). It
   reads the session and PID that agents write into everything they start (birth record), and on
   Windows it checks whether anyone can still talk to a stdio server. Every candidate shows the
@@ -72,7 +73,7 @@ counts the whole machine as 100, and the footer lists the keys of the current vi
 
 ![Sessions view](docs/images/sessions.png)
 
-| Cleanup: candidates and their evidence | Ports: who listens where |
+| Cleanup: candidates by the tab they came from, with evidence | Ports: who listens where, by tab |
 |---|---|
 | ![Cleanup view](docs/images/cleanup.png) | ![Ports view](docs/images/ports.png) |
 | **Network: SSH connections and keys** | **Settings: cleanup, safety, agent hooks** |
