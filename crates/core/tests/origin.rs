@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use agentlens_core::actions::plan;
 use agentlens_core::catalog::Catalog;
 use agentlens_core::health::{Candidate, CandidateKind, History, Policy, candidates};
-use agentlens_core::model::Model;
+use agentlens_core::model::{GroupKind, Model};
 use agentlens_core::origin::{OWNER_GONE_GRACE_SECS, Origins};
 use agentlens_core::{ProcInfo, Snapshot, TcpConn};
 
@@ -589,4 +589,61 @@ fn ending_a_session_takes_what_it_started_outside_its_tree() {
     tracked(&mut m);
     let targets: Vec<u32> = plan(&m, &[12]).targets.iter().map(|t| t.pid).collect();
     assert!([12, 13, 30, 31, 32].iter().all(|p| targets.contains(p)), "{targets:?}");
+}
+
+const WMI: &str = "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe";
+
+/// A Claude Code daemon an Orca tab's session started through WMI, running a background session.
+fn wmi_daemon(marks: &[(&str, &str)]) -> Vec<ProcInfo> {
+    let mut daemon = proc(51, 50, CLAUDE, &["claude", "daemon", "run"], marks);
+    daemon.cwd = Some("C:\\Users\\me\\".into());
+    let mut inner = proc(53, 52, CLAUDE, &["claude", "--resume", "x.jsonl"], marks);
+    inner.cwd = Some("C:\\work\\project\\ImprovePrompt\\".into());
+    vec![
+        proc(50, 0, WMI, &["WmiPrvSE.exe"], &[]),
+        daemon,
+        proc(52, 51, CLAUDE, &["claude", "--bg-pty-host"], marks),
+        inner,
+    ]
+}
+
+#[test]
+fn a_session_an_agent_handed_to_wmi_is_grouped_by_who_started_it() {
+    let marks = [
+        ("AI_AGENT", "claude-code_2-1-318_harness"),
+        ("ORCA_TAB_ID", "t9"),
+        ("ORCA_WORKTREE_ID", "w1::C:/work/project/CheckStealPrompt"),
+    ];
+    let m = model(T0, wmi_daemon(&marks), Vec::new());
+    assert!(m.orphans.is_empty(), "{:?}", m.orphans);
+    assert_eq!(m.groups.len(), 1);
+    let g = &m.groups[0];
+    assert_eq!(g.kind, GroupKind::Detached("claude".into()));
+    assert_eq!(g.name, "Detached from Claude Code");
+    let tab = &g.tabs[0];
+    assert_eq!(
+        tab.label, "project/ImprovePrompt",
+        "where the inner session works, not the daemon's home"
+    );
+    assert_eq!(tab.origin.as_deref(), Some("Orca project/CheckStealPrompt"));
+    assert_eq!(tab.sessions[0].root_pid, 51);
+}
+
+#[test]
+fn a_detached_session_without_host_marks_has_no_origin() {
+    let m = model(
+        T0,
+        wmi_daemon(&[("AI_AGENT", "claude-code_2-1-318_harness")]),
+        Vec::new(),
+    );
+    let tab = &m.groups[0].tabs[0];
+    assert_eq!(m.groups[0].kind, GroupKind::Detached("claude".into()));
+    assert_eq!(tab.origin, None);
+}
+
+#[test]
+fn an_unmarked_session_under_an_unknown_launcher_stays_unregistered() {
+    let m = model(T0, wmi_daemon(&[]), Vec::new());
+    assert_eq!(m.groups[0].kind, GroupKind::Unregistered("wmiprvse".into()));
+    assert_eq!(m.groups[0].tabs[0].label, "Users/me");
 }

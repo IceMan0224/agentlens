@@ -36,6 +36,9 @@ pub enum GroupKind {
     Unregistered(String),
     /// Agents started from a plain shell window.
     Standalone,
+    /// Sessions an agent started that left its process tree (a background daemon spawned
+    /// through WMI or `setsid`), by the id of the agent named in their environment.
+    Detached(String),
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +61,9 @@ pub struct Tab {
     /// Processes directly under the host that contain this tab's sessions (usually shells).
     pub root_pids: Vec<u32>,
     pub sessions: Vec<Session>,
+    /// For detached sessions: the host tab they were started from, by what its marks inherited
+    /// in their environment say.
+    pub origin: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -147,6 +153,20 @@ fn agent_marked(c: &Catalog, p: &ProcInfo) -> bool {
         .flat_map(|a| a.pid_env.iter().chain(&a.session_env))
         .chain(&c.processes.agent_env);
     keys.into_iter().any(|k| env(p, k).is_some())
+}
+
+/// The agent a process's environment names: by `AI_AGENT`, else by any agent's own variables.
+pub(crate) fn named_agent(c: &Catalog, p: &ProcInfo) -> Option<usize> {
+    if let Some(value) = c.processes.agent_env.iter().find_map(|k| env(p, k)) {
+        let value = value.to_lowercase();
+        let name = value.split('_').next().unwrap_or_default();
+        if let Some(i) = c.agents.iter().position(|a| has(&a.ai_agent, name)) {
+            return Some(i);
+        }
+    }
+    c.agents
+        .iter()
+        .position(|a| a.pid_env.iter().chain(&a.session_env).any(|k| env(p, k).is_some()))
 }
 
 fn has(list: &[String], name: &str) -> bool {
@@ -489,7 +509,20 @@ impl Model {
                         .take_while(|a| roles[a] != Role::System)
                         .collect();
                     let top = *below_critical.last().unwrap();
-                    if roles[&top] == Role::Shell || top == root {
+                    // An agent's marks on the session but not on what runs it: an agent started
+                    // the session and it was handed to something else (WMI, a reaper). A
+                    // terminal the agent opened carries the marks too and stays a terminal.
+                    let detached_from = named_agent(catalog, &model.procs[&root])
+                        .filter(|_| top == root || named_agent(catalog, &model.procs[&top]).is_none());
+                    if let Some(i) = detached_from {
+                        let agent = &catalog.agents[i];
+                        (
+                            GroupKind::Detached(agent.id.clone()),
+                            format!("Detached from {}", agent.name),
+                            root,
+                            None,
+                        )
+                    } else if roles[&top] == Role::Shell || top == root {
                         (GroupKind::Standalone, "Terminal".to_string(), top, None)
                     } else {
                         let tab_root = below_critical[below_critical.len().saturating_sub(2)];
@@ -519,12 +552,24 @@ impl Model {
                 Some((h, name)) => format!("{}:{name}", h.id),
                 None => tab_id.clone(),
             };
-            let label = host_def
-                .and_then(|h| marked(&h.label_env))
-                .and_then(|v| v.rsplit("::").next())
-                .or(root_proc.cwd.as_deref())
-                .map(|p| short_path(p, 2))
-                .unwrap_or_else(|| tab_proc.name.clone());
+            let detached = matches!(kind, GroupKind::Detached(_));
+            // A detached root is often a daemon in the home folder; the sessions it runs are
+            // where the work is.
+            let work_dirs = if detached {
+                model.inner_agent_dirs(root, &roles)
+            } else {
+                Vec::new()
+            };
+            let label = match work_dirs.as_slice() {
+                [] => host_def
+                    .and_then(|h| marked(&h.label_env))
+                    .and_then(|v| v.rsplit("::").next())
+                    .or(root_proc.cwd.as_deref())
+                    .map(|p| short_path(p, 2))
+                    .unwrap_or_else(|| tab_proc.name.clone()),
+                [one] => short_path(one, 2),
+                [first, rest @ ..] => format!("{} +{}", short_path(first, 2), rest.len()),
+            };
             let agent = &catalog.agents[agent_idx];
             let session = Session {
                 agent_id: agent.id.clone(),
@@ -555,6 +600,7 @@ impl Model {
                         label,
                         root_pids: Vec::new(),
                         sessions: Vec::new(),
+                        origin: None,
                     });
                     group.tabs.last_mut().unwrap()
                 }
@@ -567,6 +613,8 @@ impl Model {
             }
             tab.sessions.push(session);
         }
+
+        model.detached_origins(catalog);
 
         for group in &mut model.groups {
             if let GroupKind::Known(id) = &group.kind {
@@ -640,6 +688,59 @@ impl Model {
         groups.sort_by_key(|g| std::cmp::Reverse(model.group_private(g)));
         model.groups = groups;
         model
+    }
+
+    /// Working folders of the innermost agents inside a session (those running no agent
+    /// themselves, such as the sessions a daemon hosts), in PID order. Empty when the root is one.
+    fn inner_agent_dirs(&self, root: u32, roles: &HashMap<u32, Role>) -> Vec<String> {
+        let is_agent = |p: &u32| matches!(roles[p], Role::Agent(_));
+        let mut dirs: Vec<String> = Vec::new();
+        let mut pids = self.subtree(root);
+        pids.sort_unstable();
+        for pid in pids.into_iter().filter(|p| *p != root && is_agent(p)) {
+            let innermost = !self.subtree(pid).iter().skip(1).any(is_agent);
+            if let (true, Some(cwd)) = (innermost, self.procs[&pid].cwd.as_ref())
+                && !dirs.contains(cwd)
+            {
+                dirs.push(cwd.clone());
+            }
+        }
+        dirs
+    }
+
+    /// Where each detached session came from, by the host marks it inherited: the host's name
+    /// for what the tab works on, else the tab itself while it is open. Without marks, none.
+    fn detached_origins(&mut self, catalog: &Catalog) {
+        let mut found: Vec<(usize, usize, String)> = Vec::new();
+        for (gi, g) in self.groups.iter().enumerate() {
+            if !matches!(g.kind, GroupKind::Detached(_)) {
+                continue;
+            }
+            for (ti, t) in g.tabs.iter().enumerate() {
+                let procs = t.sessions.iter().map(|s| &self.procs[&s.root_pid]);
+                let origin = procs.into_iter().find_map(|p| {
+                    catalog.hosts.iter().find_map(|h| {
+                        if let Some(v) = h.label_env.as_deref().and_then(|k| env(p, k)) {
+                            let place = v.rsplit("::").next().unwrap_or(v);
+                            return Some(format!("{} {}", h.name, short_path(place, 2)));
+                        }
+                        let id = env(p, h.tab_env.as_deref()?)?;
+                        let label = self.tab_label(&format!("{}:{id}", h.id));
+                        Some(format!(
+                            "{} {}",
+                            h.name,
+                            label.unwrap_or_else(|| id.chars().take(8).collect())
+                        ))
+                    })
+                });
+                if let Some(o) = origin {
+                    found.push((gi, ti, o));
+                }
+            }
+        }
+        for (gi, ti, o) in found {
+            self.groups[gi].tabs[ti].origin = Some(o);
+        }
     }
 
     fn orphan_reason(&self, catalog: &Catalog, pid: u32) -> OrphanReason {

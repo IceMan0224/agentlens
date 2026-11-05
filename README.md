@@ -135,6 +135,9 @@ Hosts that set a variable per tab are split by it: Orca (`ORCA_TAB_ID`, with one
 worktree), Paseo (`PASEO_TERMINAL_ID`; an agent Paseo starts itself is a tab of its own), Windows
 Terminal (`WT_SESSION`) and cmux (`CMUX_WORKSPACE_ID`, one tab per workspace). Each SSH login and each tmux, herdr or screen pane is a tab. A program not listed here
 that starts an agent shows up as "(unregistered)", and `h` in Sessions adds it to your rules.
+A session an agent started and handed off (a background daemon launched through WMI or `setsid`)
+shows up as "Detached from <agent>" instead, named after the folder its inner sessions work in and
+the host tab it was started from when its environment still says so.
 
 ## Installation
 
@@ -186,9 +189,9 @@ with their evidence:
 | View | Shows | Keys |
 |---|---|---|
 | 1 Sessions | Host › tab › session › process tree with memory, CPU, idle time and state | `←/→` fold, `enter` details, `k` end the selected tree, `h` register a host |
-| 2 Cleanup | Cleanup candidates and the evidence for each (yellow = proposed) | `space` mark, `x` end marked |
+| 2 Cleanup | Cleanup candidates and the evidence for each, under the host tab or session they came from (yellow = proposed) | `space` mark, `x` end marked |
 | 3 Network | SSH connections, keys, known hosts | `d` disconnect |
-| 4 Ports | Listening ports of sessions and leftovers | `k` end the owner, `a` all ports |
+| 4 Ports | Listening ports of sessions and leftovers, under the host tab they came from | `k` end the owner, `a` all ports |
 | 5 Containers | Docker containers by compose project, with the checkout each was started from and the live session working there; projects whose checkout is gone are proposed (yellow) | `space` mark a project, `x` stop running and remove stopped containers (volumes kept) |
 | 6 Rules | How leftovers are found, the agents and hosts on this PC in yellow (commands on `PATH`, app launchers: Start Menu, `.desktop`, `.app`, and whatever is running) and the rest of the catalog, rules file | `e` edit, `r` reload |
 | 7 Settings | Language, automatic cleanup, idle threshold, leftovers to keep, agent hooks, agent MCP | `←/→`/`enter` change |
