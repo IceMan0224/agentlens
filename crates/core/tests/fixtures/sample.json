@@ -2385,5 +2385,113 @@
    "addr": "127.0.0.1",
    "port": 50051
   }
+ ],
+ "containers": [
+  {
+   "name": "search-v1",
+   "compose": true,
+   "working_dir": "C:\\work\\acme\\search-v1",
+   "place": "Gone",
+   "containers": [
+    {
+     "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "name": "search-v1-elastic-1",
+     "image": "elasticsearch:8.15.0",
+     "state": "running",
+     "status": "Up 2 days",
+     "ports": "0.0.0.0:9200->9200/tcp, [::]:9200->9200/tcp",
+     "project": "search-v1",
+     "service": "elastic",
+     "working_dir": "C:\\work\\acme\\search-v1"
+    },
+    {
+     "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "name": "search-v1-redis-1",
+     "image": "redis:7-alpine",
+     "state": "exited",
+     "status": "Exited (0) 2 days ago",
+     "ports": "",
+     "project": "search-v1",
+     "service": "redis",
+     "working_dir": "C:\\work\\acme\\search-v1"
+    }
+   ]
+  },
+  {
+   "name": "api-test",
+   "compose": true,
+   "working_dir": "C:\\work\\acme\\api",
+   "place": {
+    "Here": {
+     "checkout": "C:\\work\\acme\\api"
+    }
+   },
+   "containers": [
+    {
+     "id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+     "name": "api-test-test-db-1",
+     "image": "postgres:16",
+     "state": "exited",
+     "status": "Exited (0) 3 hours ago",
+     "ports": "",
+     "project": "api-test",
+     "service": "test-db",
+     "working_dir": "C:\\work\\acme\\api"
+    }
+   ]
+  },
+  {
+   "name": "pg-snapshot",
+   "compose": false,
+   "working_dir": null,
+   "place": "Unknown",
+   "containers": [
+    {
+     "id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+     "name": "pg-snapshot",
+     "image": "postgres:16",
+     "state": "exited",
+     "status": "Exited (0) 5 days ago",
+     "ports": "",
+     "project": null,
+     "service": null,
+     "working_dir": null
+    }
+   ]
+  },
+  {
+   "name": "web-app",
+   "compose": true,
+   "working_dir": "C:\\work\\acme\\web-app",
+   "place": {
+    "Here": {
+     "checkout": "C:\\work\\acme\\web-app"
+    }
+   },
+   "containers": [
+    {
+     "id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "name": "web-app-db-1",
+     "image": "postgres:16",
+     "state": "running",
+     "status": "Up 41 minutes (healthy)",
+     "ports": "0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp",
+     "project": "web-app",
+     "service": "db",
+     "working_dir": "C:\\work\\acme\\web-app"
+    },
+    {
+     "id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "name": "web-app-redis-1",
+     "image": "redis:7-alpine",
+     "state": "running",
+     "status": "Up 41 minutes",
+     "ports": "0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp",
+     "project": "web-app",
+     "service": "redis",
+     "working_dir": "C:\\work\\acme\\web-app"
+    }
+   ]
+  }
  ]
 }

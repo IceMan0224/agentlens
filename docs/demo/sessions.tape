@@ -12,7 +12,7 @@ Set Height 780
 Hide
 Type "./target/release/agentlens --replay crates/core/tests/fixtures/sample.json"
 Enter
-Sleep 1.5s
+Sleep 3s
 Show
 Sleep 500ms
 Screenshot docs/images/sessions.png
@@ -20,7 +20,7 @@ Type "q"
 Hide
 Type "XDG_CONFIG_HOME=docs/demo/ko ./target/release/agentlens --replay crates/core/tests/fixtures/sample.json"
 Enter
-Sleep 1.5s
+Sleep 3s
 Show
 Sleep 500ms
 Screenshot docs/images/sessions-ko.png

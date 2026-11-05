@@ -36,6 +36,7 @@ fn model(at: u64, processes: Vec<ProcInfo>, tcp: Vec<TcpConn>) -> Model {
             tcp,
             listening: Vec::new(),
             cores: 16,
+            containers: None,
         },
         &Catalog::builtin(),
     )

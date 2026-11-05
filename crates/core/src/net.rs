@@ -437,6 +437,7 @@ mod tests {
                 tcp: vec![conn(10), conn(11)],
                 listening: Vec::new(),
                 cores: 1,
+                containers: None,
             },
             &catalog,
         );

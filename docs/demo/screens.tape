@@ -12,7 +12,7 @@ Set Height 330
 Hide
 Type "./target/release/agentlens --replay crates/core/tests/fixtures/sample.json"
 Enter
-Sleep 1.5s
+Sleep 3s
 Show
 Type "2"
 Sleep 1s
@@ -26,7 +26,11 @@ Type "4"
 Sleep 1s
 Screenshot docs/images/ports.png
 Sleep 300ms
-Type "6"
+Type "5"
+Sleep 1s
+Screenshot docs/images/containers.png
+Sleep 300ms
+Type "7"
 Sleep 1s
 Screenshot docs/images/settings.png
 Sleep 300ms

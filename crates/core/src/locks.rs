@@ -166,6 +166,7 @@ mod tests {
             tcp: Vec::new(),
             listening: Vec::new(),
             cores: 1,
+            containers: None,
         };
         Model::build(snapshot, &Catalog::builtin())
     }

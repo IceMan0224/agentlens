@@ -25,6 +25,10 @@ pub struct Snapshot {
     /// Logical CPUs of the machine it was taken on. Absent from older snapshots.
     #[serde(default)]
     pub cores: u32,
+    /// Docker containers, judged where the snapshot was taken. Only `--dump-json` reads them,
+    /// so a replay can show them; the dashboard reads them live on its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub containers: Option<Vec<crate::containers::Project>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,6 +197,7 @@ impl Collector {
             tcp: self.tcp.clone(),
             listening: self.listening.clone(),
             cores: self.cores,
+            containers: None,
         }
     }
 

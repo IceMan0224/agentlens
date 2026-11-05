@@ -28,6 +28,7 @@ fn model(at: u64, cpu: f32) -> Model {
             tcp: Vec::new(),
             listening: Vec::new(),
             cores: 1,
+            containers: None,
         },
         &Catalog::builtin(),
     )
