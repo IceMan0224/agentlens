@@ -30,7 +30,9 @@ agentlens는 모든 프로세스에 대해 **누구의 것인가, 그 주인이 
 
 - **누구의 프로세스인지 압니다.** [에이전트 45종](#지원-에이전트와-호스트)(Claude Code, Codex, opencode, Gemini CLI, Copilot CLI, Aider,
   Goose …)에 대해 호스트 → 탭 → 세션 → 프로세스 트리를 만듭니다. 지원 호스트는 Orca, Paseo, VS Code, Cursor,
-  JetBrains, Windows Terminal, iTerm2, Ghostty, cmux, tmux, herdr, SSH 로그인, WSL 등입니다.
+  JetBrains, Windows Terminal, iTerm2, Ghostty, cmux, tmux, herdr, SSH 로그인, WSL 등입니다. 에이전트가
+  백그라운드로 띄운 세션(WMI나 `setsid`로 띄운 데몬)은 *Detached from <에이전트>*로 묶고, 작업 폴더와 띄운 탭을
+  함께 보여 줍니다.
 - **이름이 아니라 근거로 잔여 프로세스를 찾습니다.** 세 가지 근거를 씁니다.
   - 계보: 세션 아래에서 본 프로세스를 기억합니다.
   - 출생 기록: 에이전트가 자식에 남기는 세션과 PID를 읽습니다.
@@ -62,7 +64,7 @@ agentlens는 모든 프로세스에 대해 **누구의 것인가, 그 주인이 
 
 CPU%는 시스템 전체를 100으로 계산하고, 하단 줄에는 현재 화면의 단축키가 표시됩니다.
 
-| 정리: 후보와 판정 근거 | 포트: 누가 어디서 대기 중인지 |
+| 정리: 나온 탭별 후보와 판정 근거 | 포트: 누가 어디서 대기 중인지, 탭별로 |
 |---|---|
 | ![정리 화면](docs/images/cleanup.png) | ![포트 화면](docs/images/ports.png) |
 | **네트워크: SSH 연결과 키** | **설정: 정리, 안전, 에이전트 훅** |

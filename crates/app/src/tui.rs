@@ -701,19 +701,7 @@ impl App {
                     }
                     PortOwner::Orphan(root) => {
                         let name = m.procs.get(&root).map(|r| r.name.as_str()).unwrap_or("?");
-                        match m
-                            .orphans
-                            .iter()
-                            .find(|o| o.pid == root)
-                            .and_then(|o| o.origin.as_deref())
-                        {
-                            Some(tab) => tf!(
-                                lang,
-                                "orphan {name} {root} · from tab {tab}",
-                                "고아 {name} {root} · 출처 탭 {tab}"
-                            ),
-                            None => tf!(lang, "orphan {name} {root}", "고아 {name} {root}"),
-                        }
+                        tf!(lang, "orphan {name} {root}", "고아 {name} {root}")
                     }
                     PortOwner::Other => role_label(m, p.pid).to_string(),
                 };

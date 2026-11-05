@@ -38,7 +38,8 @@ agentlens はすべてのプロセスについて **誰のものか、その持�
 - **誰のプロセスかが分かります。** [45 種類のエージェント](#対応エージェントとホスト)（Claude Code、Codex、opencode、
   Gemini CLI、Copilot CLI、Aider、Goose など）について、ホスト → タブ → セッション → プロセスのツリーを作ります。
   対応ホストは Orca、Paseo、VS Code、Cursor、JetBrains、Windows Terminal、iTerm2、Ghostty、cmux、tmux、herdr、SSH ログイン、
-  WSL などです。
+  WSL などです。エージェントがバックグラウンドで起動したセッション（WMI や `setsid` で起動したデーモン）は
+  *Detached from <エージェント>* としてまとめ、作業フォルダと起動元のタブを添えます。
 - **名前ではなく根拠で残存プロセスを見つけます。** セッションの下で見たものを記録します（系譜）。エージェントが起動する
   すべてのものに書き込むセッションと PID を読みます（出生記録）。Windows では stdio サーバーにまだ誰かが話しかけられるかを
   確かめます。候補ごとに `owner-gone, from session Claude Code @ Orca / acme/web-app, agent-infra` のように根拠を示します。
@@ -68,7 +69,7 @@ agentlens はすべてのプロセスについて **誰のものか、その持�
 
 ![Sessions ビュー](docs/images/sessions.png)
 
-| Cleanup: 候補とその根拠 | Ports: 誰がどこで LISTEN しているか |
+| Cleanup: 出どころのタブごとの候補と根拠 | Ports: 誰がどこで LISTEN しているか（タブごと） |
 |---|---|
 | ![Cleanup ビュー](docs/images/cleanup.png) | ![Ports ビュー](docs/images/ports.png) |
 | **Network: SSH 接続と鍵** | **Settings: 片付け、安全、エージェントフック** |
