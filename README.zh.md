@@ -66,6 +66,11 @@ agentlens 对每个进程回答两个问题：**它是谁的？它的主人还�
 | **Network：SSH 连接和密钥** | **Settings：清理、安全、智能体钩子** |
 | ![Network 视图](docs/images/network.png) | ![Settings 视图](docs/images/settings.png) |
 
+**Containers**：按 compose 项目分组的 Docker 容器，以及启动它们的检出目录和在那里工作的会话。
+检出目录已消失的项目会被建议清理（黄色）。
+
+![Containers 视图](docs/images/containers.png)
+
 截图回放的是虚构的快照（`--replay`），不包含任何真实机器的信息。界面语言为英语和韩语。
 
 ## 支持的智能体与宿主

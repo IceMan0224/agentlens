@@ -6,6 +6,8 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use serde::{Deserialize, Serialize};
+
 use crate::catalog::normalize;
 use crate::model::Model;
 
@@ -14,7 +16,7 @@ const PS_FORMAT: &str = "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.State}}\t{{.Status}
     {{.Label \"com.docker.compose.project\"}}\t{{.Label \"com.docker.compose.service\"}}\t\
     {{.Label \"com.docker.compose.project.working_dir\"}}";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Container {
     pub id: String,
     pub name: String,
@@ -37,7 +39,7 @@ impl Container {
 }
 
 /// Where a project's working directory stands on this machine.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Place {
     /// It exists; `checkout` is the git checkout holding it, or the directory itself.
     Here { checkout: String },
@@ -47,7 +49,7 @@ pub enum Place {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Project {
     /// The compose project name, or the container name for a container started on its own.
     pub name: String,

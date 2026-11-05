@@ -311,7 +311,11 @@ impl App {
         self.replay
     }
 
-    pub fn apply(&mut self, snapshot: Snapshot) {
+    pub fn apply(&mut self, mut snapshot: Snapshot) {
+        // A replay shows the containers saved with it; the dashboard reads them live instead.
+        if let Some(projects) = snapshot.containers.take().filter(|_| self.replay) {
+            self.apply_docker(DockerMsg::Read(Docker::Ready(projects)));
+        }
         let mut model = Model::build(snapshot, &self.catalog);
         self.history.update(&model);
         self.origins.update(&model, &self.catalog);
@@ -1337,8 +1341,8 @@ impl App {
                     docker_msg = match &self.docker {
                         _ if self.replay => t(
                             lang,
-                            "containers are not read in a replay",
-                            "재생 중에는 컨테이너를 읽지 않음",
+                            "this snapshot was saved without containers",
+                            "이 스냅숏에는 컨테이너가 저장되지 않음",
                         )
                         .to_string(),
                         Docker::Pending => t(lang, "reading docker…", "docker 읽는 중…").into(),
@@ -3598,6 +3602,36 @@ mod tests {
         key(&mut app, KeyCode::Char('x'));
         let refusals = &app.confirm.as_ref().unwrap().refusals;
         assert_eq!(refusals, &["gone-db-1 is protected by rule 'postgres'".to_string()]);
+    }
+
+    #[test]
+    fn replay_shows_the_containers_saved_with_it() {
+        let snapshot: Snapshot = serde_json::from_str(include_str!("../../core/tests/fixtures/sample.json")).unwrap();
+        let mut app = App::new(Rules::default(), Vec::new()).replaying();
+        app.apply(snapshot);
+        assert_eq!(app.docker_marked, HashSet::from(["search-v1".to_string()]));
+        key(&mut app, KeyCode::Char('5'));
+        let s = screen(&mut app);
+        assert!(s.contains("checkout gone") && s.contains("9200→9200/tcp"), "{s}");
+        assert!(s.contains("Claude Code @ Orca / acme/web-app"), "{s}");
+        // Saved containers are another machine's: confirming changes nothing here.
+        key(&mut app, KeyCode::Char('x'));
+        assert!(app.confirm.as_ref().unwrap().containers.is_some());
+        key(&mut app, KeyCode::Char('y'));
+        assert!(app.status.contains("read-only"), "{}", app.status);
+
+        // The dashboard reads containers live, never from a snapshot.
+        let mut app = app_with(Rules::default());
+        assert_eq!(app.docker, Docker::Pending);
+        key(&mut app, KeyCode::Char('5'));
+        assert!(screen(&mut app).contains("reading docker"));
+    }
+
+    fn app_with(rules: Rules) -> App {
+        let snapshot: Snapshot = serde_json::from_str(include_str!("../../core/tests/fixtures/sample.json")).unwrap();
+        let mut app = App::new(rules, Vec::new());
+        app.apply(snapshot);
+        app
     }
 
     #[test]

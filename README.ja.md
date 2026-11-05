@@ -74,6 +74,11 @@ agentlens はすべてのプロセスについて **誰のものか、その持�
 | **Network: SSH 接続と鍵** | **Settings: 片付け、安全、エージェントフック** |
 | ![Network ビュー](docs/images/network.png) | ![Settings ビュー](docs/images/settings.png) |
 
+**Containers**: compose プロジェクトごとの Docker コンテナと、起動元のチェックアウト、そこで作業中の
+セッション。チェックアウトが消えたプロジェクトは提案（黄色）されます。
+
+![Containers ビュー](docs/images/containers.png)
+
 スクリーンショットは架空のスナップショットを再生（`--replay`）したもので、実在のマシンは写っていません。UI の言語は
 英語と韓国語です。
 

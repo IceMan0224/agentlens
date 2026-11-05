@@ -13,7 +13,7 @@ use agentlens_core::model::Model;
 use agentlens_core::origin::Origins;
 use agentlens_core::rules::Rules;
 use agentlens_core::stdio::StdioProbe;
-use agentlens_core::{Collector, Snapshot, hooks, install, locks, net};
+use agentlens_core::{Collector, Snapshot, containers, hooks, install, locks, net};
 
 const USAGE: &str = "usage: agentlens [--report [snapshot.json] | --dump-json | --replay snapshot.json | locks <path>]";
 
@@ -41,7 +41,11 @@ fn main() -> anyhow::Result<()> {
             tui::run_replay(rules, serde_json::from_str(&std::fs::read_to_string(path)?)?)
         }
         Some("--dump-json") => {
-            let snapshot = live_snapshot(&catalog)?;
+            let mut snapshot = live_snapshot(&catalog)?;
+            // Saved with their judgment, so a replay elsewhere shows them as they were here.
+            if let containers::Docker::Ready(projects) = containers::read(containers::engine_is_local()) {
+                snapshot.containers = Some(projects);
+            }
             serde_json::to_writer_pretty(std::io::stdout().lock(), &snapshot)?;
             Ok(())
         }

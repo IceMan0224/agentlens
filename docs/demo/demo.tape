@@ -15,7 +15,7 @@ Set TypingSpeed 120ms
 Hide
 Type "./target/release/agentlens --replay crates/core/tests/fixtures/sample.json"
 Enter
-Sleep 1.5s
+Sleep 3s
 Show
 Sleep 2.5s
 Down 5
@@ -34,9 +34,15 @@ Type "n"
 Sleep 800ms
 Type "4"
 Sleep 2.5s
+Type "5"
+Sleep 3s
+Type "x"
+Sleep 2.5s
+Type "n"
+Sleep 800ms
 Type "3"
 Sleep 2s
-Type "6"
+Type "7"
 Sleep 2s
 Type "1"
 Sleep 1s

@@ -78,6 +78,11 @@ counts the whole machine as 100, and the footer lists the keys of the current vi
 | **Network: SSH connections and keys** | **Settings: cleanup, safety, agent hooks** |
 | ![Network view](docs/images/network.png) | ![Settings view](docs/images/settings.png) |
 
+**Containers**: Docker containers by compose project, with the checkout each was started from
+and the session working there. A project whose checkout is gone is proposed (yellow).
+
+![Containers view](docs/images/containers.png)
+
 The screenshots replay a made-up snapshot (`--replay`), so no real machine is shown. The UI is
 also available in Korean ([screenshot](docs/images/sessions-ko.png)).
 
