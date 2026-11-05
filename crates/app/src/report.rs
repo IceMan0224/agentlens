@@ -42,9 +42,10 @@ pub fn render(model: &Model, candidates: &[Candidate], ssh: &[SshConn]) -> Strin
             let pids = model.tab_pids(tab);
             let _ = writeln!(
                 out,
-                "  tab {}  ({})  {} procs {}",
+                "  tab {}  ({}){}  {} procs {}",
                 tab.label,
                 tab.key,
+                tab.origin.as_deref().map(|o| format!("  from {o}")).unwrap_or_default(),
                 pids.len(),
                 mb(model.private_bytes(&pids))
             );

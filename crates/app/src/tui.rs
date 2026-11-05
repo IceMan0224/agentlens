@@ -9,7 +9,8 @@ use agentlens_core::actions::{self, KillPlan, Outcome};
 use agentlens_core::catalog::Catalog;
 use agentlens_core::containers::{self, ContainerPlan, Docker, Place, Project};
 use agentlens_core::health::{
-    Candidate, CandidateKind, History, SessionState, candidates, fmt_duration, session_state, short_cmd, tree_label,
+    Candidate, CandidateKind, History, SessionState, candidates, fmt_duration, session_state, short_cmd, tab_place,
+    tree_label,
 };
 use agentlens_core::hooks::{self, HookState};
 use agentlens_core::install;
@@ -222,6 +223,8 @@ pub struct App {
     /// Outcome of the last key press, shown instead of the key hints until the next one.
     status: String,
     items: Vec<Item>,
+    /// What each table row shows, by index into the view's list; None for a heading.
+    row_map: Vec<Option<usize>>,
     table_area: Rect,
     tabs_area: Rect,
     quit: bool,
@@ -278,6 +281,7 @@ impl App {
             detail: false,
             status: String::new(),
             items: Vec::new(),
+            row_map: Vec::new(),
             table_area: Rect::default(),
             tabs_area: Rect::default(),
             quit: false,
@@ -343,8 +347,12 @@ impl App {
         self.candidates = candidates(&model, &self.history, &self.origins, &policy, || {
             if replay { HashSet::new() } else { windowed_pids() }
         });
+        // Listed under where they came from, like sessions under their tab.
+        gather(&mut self.candidates, |c| c.origin.clone());
         self.ssh = net::ssh_connections(&model, &self.catalog, &self.ssh_config);
         self.ports = net::ports(&model);
+        let lang = self.lang();
+        gather(&mut self.ports, |p| port_origin(lang, &model, p));
         if let Some(i) = was_port.and_then(|k| self.visible_ports().iter().position(|p| port_key(p) == k)) {
             self.selected[3] = i;
         }
@@ -513,7 +521,11 @@ impl App {
                 ];
                 cells.extend(stats(&pids, Some(self.idle(m, &pids))));
                 let ids: Vec<String> = t.tab_ids.iter().map(|id| short_key(id)).collect();
-                cells.push(Cell::from(format!("{} · {}", agents.join(", "), ids.join(", "))));
+                let mut info = format!("{} · {}", agents.join(", "), ids.join(", "));
+                if let Some(origin) = &t.origin {
+                    info.push_str(&tf!(lang, " · from {origin}", " · 출처 {origin}"));
+                }
+                cells.push(Cell::from(info));
                 rows.push(Row::new(cells).style(Style::new().bold()));
                 let open = self.is_open(&item);
                 items.push(item);
@@ -614,10 +626,20 @@ impl App {
                 Row::new(vec![
                     Cell::from(mark),
                     Cell::from(kind),
-                    Cell::from(c.label.clone()),
+                    Cell::from(format!("  {}", c.label)),
                     Cell::from(c.root_pid.to_string()),
                     Cell::from(mb(c.private_bytes)),
-                    Cell::from(c.reasons.iter().map(|r| phrase(lang, r)).collect::<Vec<_>>().join(", ")),
+                    // The heading above already says where it came from.
+                    Cell::from(
+                        c.reasons
+                            .iter()
+                            .filter(|r| {
+                                c.origin.is_none() || !(r.starts_with("from tab ") || r.starts_with("from session "))
+                            })
+                            .map(|r| phrase(lang, r))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
                 ])
                 .style(style)
             })
@@ -672,9 +694,10 @@ impl App {
             .into_iter()
             .map(|p| {
                 let mut owner = match p.owner {
+                    // The heading above names the tab.
                     PortOwner::Session(g, t, s) => {
-                        let tab = &m.groups[g].tabs[t];
-                        format!("{} @ {} / {}", tab.sessions[s].agent_name, m.groups[g].name, tab.label)
+                        let session = &m.groups[g].tabs[t].sessions[s];
+                        format!("{} {}", session.agent_name, session.root_pid)
                     }
                     PortOwner::Orphan(root) => {
                         let name = m.procs.get(&root).map(|r| r.name.as_str()).unwrap_or("?");
@@ -709,7 +732,7 @@ impl App {
                 };
                 let tree = m.subtree(p.pid);
                 Row::new(vec![
-                    Cell::from(p.port.to_string()),
+                    Cell::from(format!("  {}", p.port)),
                     Cell::from(format!("{bind} ({})", p.addrs.join(", "))),
                     Cell::from(format!("{} {}", p.process, p.pid)),
                     Cell::from(p.clients.to_string()),
@@ -1258,7 +1281,7 @@ impl App {
             ),
             View::Ports => (
                 vec![
-                    t(lang, "Port", "포트"),
+                    t(lang, "Origin / port", "출처 / 포트"),
                     t(lang, "Bound to", "바인딩"),
                     t(lang, "Process", "프로세스"),
                     t(lang, "Clients", "접속"),
@@ -1266,12 +1289,12 @@ impl App {
                     t(lang, "Owner", "주인"),
                 ],
                 vec![
-                    Constraint::Length(6),
+                    Constraint::Fill(2),
                     Constraint::Length(26),
                     Constraint::Length(20),
                     Constraint::Length(5),
                     Constraint::Length(9),
-                    Constraint::Fill(1),
+                    Constraint::Fill(2),
                 ],
                 self.port_rows(),
                 if self.all_ports {
@@ -1320,9 +1343,25 @@ impl App {
             ),
             View::Rules => unreachable!(),
         };
-        let count = rows.len();
+        let (rows, row_map) = match (self.view, self.model.as_ref()) {
+            (View::Cleanup, _) => {
+                let origins: Vec<Option<String>> = self.candidates.iter().map(|c| c.origin.clone()).collect();
+                sectioned(lang, &origins, rows, 2)
+            }
+            (View::Ports, Some(m)) => {
+                let origins: Vec<Option<String>> =
+                    self.visible_ports().iter().map(|p| port_origin(lang, m, p)).collect();
+                sectioned(lang, &origins, rows, 0)
+            }
+            _ => {
+                let map = (0..rows.len()).map(Some).collect();
+                (rows, map)
+            }
+        };
+        self.row_map = row_map;
         let v = self.view_index();
-        self.selected[v] = self.selected[v].min(count.saturating_sub(1));
+        self.selected[v] = self.selected[v].min(self.row_count().saturating_sub(1));
+        let selected_row = self.row_map.iter().position(|r| *r == Some(self.selected[v]));
         let empty = rows.is_empty();
         let table = Table::new(rows, widths)
             .header(Row::new(header).style(Style::new().add_modifier(Modifier::UNDERLINED)))
@@ -1330,7 +1369,7 @@ impl App {
             .block(Block::bordered().title(title));
         let mut state = TableState::default()
             .with_offset(self.offsets[v])
-            .with_selected((!empty).then_some(self.selected[v]));
+            .with_selected(selected_row.filter(|_| !empty));
         frame.render_stateful_widget(table, area, &mut state);
         self.offsets[v] = state.offset();
         self.table_area = area;
@@ -1837,8 +1876,8 @@ impl App {
         let body_top = self.table_area.y + 2; // border + header
         if y >= body_top && y < self.table_area.y + self.table_area.height.saturating_sub(1) {
             let v = self.view_index();
-            let idx = self.offsets[v] + (y - body_top) as usize;
-            if idx < self.row_count() {
+            let row = self.offsets[v] + (y - body_top) as usize;
+            if let Some(Some(idx)) = self.row_map.get(row).copied() {
                 if self.selected[v] == idx {
                     match self.view {
                         View::Sessions => self.toggle_fold(),
@@ -2687,11 +2726,72 @@ fn push_procs(m: &Model, root: u32, indent: usize, rows: &mut Vec<Row<'static>>,
     }
 }
 
+/// Where a port's owner came from: the session's tab, or the tab an orphan was started from.
+fn port_origin(lang: Language, m: &Model, p: &Port) -> Option<String> {
+    match p.owner {
+        PortOwner::Session(g, t, _) => Some(format!("{} / {}", m.groups[g].name, m.groups[g].tabs[t].label)),
+        PortOwner::Orphan(root) => {
+            let tab = m
+                .orphans
+                .iter()
+                .find(|o| o.pid == root)
+                .and_then(|o| o.origin.as_deref());
+            Some(tab.map_or_else(|| t(lang, "orphans", "고아").to_string(), |tab| tab_place(m, tab)))
+        }
+        PortOwner::Other => None,
+    }
+}
+
+/// Brings items with the same origin together, keeping the list's order otherwise: origins
+/// in the order they first appear, and each origin's items in theirs. Items without one last.
+fn gather<T>(items: &mut Vec<T>, origin: impl Fn(&T) -> Option<String>) {
+    let mut order: Vec<Option<String>> = Vec::new();
+    let mut keyed: Vec<(usize, T)> = items
+        .drain(..)
+        .map(|item| {
+            let o = origin(&item);
+            let rank = order.iter().position(|k| *k == o).unwrap_or_else(|| {
+                order.push(o);
+                order.len() - 1
+            });
+            (rank, item)
+        })
+        .collect();
+    keyed.sort_by_key(|(rank, _)| (order[*rank].is_none(), *rank));
+    items.extend(keyed.into_iter().map(|(_, item)| item));
+}
+
+/// `rows` (sorted by origin) with a heading above each origin's run, in column `col`, and what
+/// each row shows: the index into `rows`, or None for a heading.
+fn sectioned(
+    lang: Language,
+    origins: &[Option<String>],
+    rows: Vec<Row<'static>>,
+    col: usize,
+) -> (Vec<Row<'static>>, Vec<Option<usize>>) {
+    let mut out = Vec::with_capacity(rows.len());
+    let mut map = Vec::with_capacity(rows.len());
+    for (i, row) in rows.into_iter().enumerate() {
+        if i == 0 || origins[i] != origins[i - 1] {
+            let n = origins[i..].iter().take_while(|o| **o == origins[i]).count();
+            let name = origins[i].as_deref().unwrap_or(t(lang, "other", "기타"));
+            let mut cells = vec![Cell::from(""); col + 1];
+            cells[col] = Cell::from(format!("{name} ({n})"));
+            out.push(Row::new(cells).style(Style::new().fg(CYAN).bold()));
+            map.push(None);
+        }
+        out.push(row);
+        map.push(Some(i));
+    }
+    (out, map)
+}
+
 fn group_key(g: &Group) -> String {
     match &g.kind {
         GroupKind::Known(id) => id.clone(),
         GroupKind::Unregistered(s) => format!("?{s}"),
         GroupKind::Standalone => "standalone".into(),
+        GroupKind::Detached(id) => format!("detached:{id}"),
     }
 }
 
@@ -3111,6 +3211,22 @@ mod tests {
                 .unwrap()
                 .ends_with(": -")
         );
+    }
+
+    #[test]
+    fn rows_sit_under_a_heading_for_where_they_came_from() {
+        let mut items = vec![(Some("a"), 1), (None, 2), (Some("b"), 3), (Some("a"), 4), (None, 5)];
+        gather(&mut items, |(o, _)| o.map(str::to_string));
+        assert_eq!(
+            items,
+            [(Some("a"), 1), (Some("a"), 4), (Some("b"), 3), (None, 2), (None, 5)],
+            "origins in the order they first appear, unknown last"
+        );
+        let origins: Vec<Option<String>> = items.iter().map(|(o, _)| o.map(str::to_string)).collect();
+        let rows = vec![Row::new(vec![Cell::from("")]); items.len()];
+        let (rows, map) = sectioned(Language::En, &origins, rows, 0);
+        assert_eq!(rows.len(), 8);
+        assert_eq!(map, [None, Some(0), Some(1), None, Some(2), None, Some(3), Some(4)]);
     }
 
     #[test]

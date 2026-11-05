@@ -103,6 +103,23 @@ pub struct Candidate {
     pub private_bytes: u64,
     /// Proposed for cleanup by default; others are informational and need a deliberate choice.
     pub eligible: bool,
+    /// Where it came from, for listing it with the rest from there: `<host> / <tab>` when the
+    /// tab is known, else the ended session. None when unknown or shared by several sessions.
+    pub origin: Option<String>,
+}
+
+/// `<host> / <tab>` for a tab label, the way sessions are listed.
+pub fn tab_place(model: &Model, label: &str) -> String {
+    match model.groups.iter().find(|g| g.tabs.iter().any(|t| t.label == label)) {
+        Some(g) => format!("{} / {label}", g.name),
+        None => label.to_string(),
+    }
+}
+
+/// An ended session's origin (`origin::OwnerGone::origin`) without the agent's name, so its
+/// leftovers sit with the rest from its tab: `Claude Code @ Orca / web` -> `Orca / web`.
+fn session_place(origin: &str) -> &str {
+    origin.split_once(" @ ").map_or(origin, |(_, place)| place)
 }
 
 pub fn fmt_duration(secs: u64) -> String {
@@ -167,7 +184,13 @@ pub fn candidates(
             reasons.push(format!("from tab {tab}"));
         }
         let eligible = orphan.agent_related || owner.is_some() || stdio;
-        out.push(orphan_candidate(model, history, orphan.pid, reasons, eligible));
+        let mut c = orphan_candidate(model, history, orphan.pid, reasons, eligible);
+        c.origin = match (&orphan.origin, owner) {
+            (Some(tab), _) => Some(tab_place(model, tab)),
+            (None, Some(owner)) => Some(session_place(&owner.origin).to_string()),
+            (None, None) => None,
+        };
+        out.push(c);
     }
 
     // Leftovers of ended sessions that the snapshot alone does not show as orphans: their
@@ -177,7 +200,9 @@ pub fn candidates(
         if let (false, Some(owner)) = (covered.contains(&pid), gone(pid)) {
             let mut reasons = Vec::new();
             owner_reasons(owner, &mut reasons);
-            out.push(orphan_candidate(model, history, pid, reasons, true));
+            let mut c = orphan_candidate(model, history, pid, reasons, true);
+            c.origin = Some(session_place(&owner.origin).to_string());
+            out.push(c);
             covered.extend(model.subtree(pid));
         }
     }
@@ -205,6 +230,7 @@ pub fn candidates(
                         reasons: vec![format!("idle {}", fmt_duration(idle))],
                         private_bytes: model.private_bytes(&tree),
                         eligible: false,
+                        origin: Some(format!("{} / {}", group.name, tab.label)),
                     });
                 }
             }
@@ -242,6 +268,7 @@ pub fn candidates(
             reasons: vec![format!("{} sessions", sessions.len()), format!("pids {pids:?}")],
             private_bytes: model.private_bytes(&pids),
             eligible: false,
+            origin: None,
         });
     }
 
@@ -295,6 +322,7 @@ fn orphan_candidate(model: &Model, history: &History, pid: u32, mut reasons: Vec
         reasons,
         private_bytes: model.private_bytes(&tree),
         eligible,
+        origin: None,
     }
 }
 
