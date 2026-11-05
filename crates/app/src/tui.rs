@@ -1390,11 +1390,11 @@ impl App {
                 "카탈로그의 에이전트: {agents}"
             ))
             .bold(),
-            Line::from(tf!(lang, "on this PC: {agents_here}", "이 PC에 설치됨: {agents_here}")),
+            found_line(lang, agents_here),
             Line::from(tf!(lang, "others: {other_agents}", "그 외: {other_agents}")).dim(),
             Line::from(""),
             Line::from(tf!(lang, "hosts in catalog: {hosts}", "카탈로그의 호스트: {hosts}")).bold(),
-            Line::from(tf!(lang, "on this PC: {hosts_here}", "이 PC에 설치됨: {hosts_here}")),
+            found_line(lang, hosts_here),
             Line::from(tf!(lang, "others: {other_hosts}", "그 외: {other_hosts}")).dim(),
             Line::from(""),
             Line::from(t(lang, "rules.toml example:", "rules.toml 예시:")).bold(),
@@ -2438,6 +2438,14 @@ fn split_found<'a>(items: impl Iterator<Item = (&'a str, &'a str)>, found: &Hash
     (names(here), names(others))
 }
 
+/// The agents or hosts on this PC, in yellow so they stand out from the rest of the catalog.
+fn found_line(lang: Language, names: String) -> Line<'static> {
+    Line::from(vec![
+        Span::raw(t(lang, "on this PC: ", "이 PC에 설치됨: ")),
+        Span::styled(names, Style::new().fg(YELLOW)),
+    ])
+}
+
 /// Browses a saved snapshot, read-only.
 pub fn run_replay(rules: Rules, snapshot: Snapshot) -> anyhow::Result<()> {
     let mut app = App::new(rules, Vec::new()).replaying();
@@ -2659,6 +2667,13 @@ mod tests {
             here[0].contains("Claude Code") && here[1].contains("Windows Terminal"),
             "{here:?}"
         );
+        // What is on this PC stands out in yellow.
+        let found = app
+            .rules_lines()
+            .into_iter()
+            .find(|l| l.spans.first().is_some_and(|s| s.content.starts_with("이 PC")))
+            .unwrap();
+        assert_eq!(found.spans[1].style.fg, Some(YELLOW));
         let others: Vec<_> = lines.iter().filter(|l| l.starts_with("그 외")).collect();
         assert!(!others[0].contains("Claude Code") && !others[1].contains("Windows Terminal"));
         assert!(others[1].contains("Zed"));

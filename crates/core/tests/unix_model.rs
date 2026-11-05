@@ -231,6 +231,42 @@ fn herdr_panes_are_tabs() {
 }
 
 #[test]
+fn paseo_daemon_under_node_is_a_host() {
+    // As Paseo 0.15 runs from `npm i -g @getpaseo/cli` on macOS: a retitled supervisor and
+    // daemon, and a detached terminal worker, all on `node`. Its terminals and the agents it
+    // starts itself are its tabs, and the detached worker is no leftover.
+    let node = "/opt/homebrew/Cellar/node/24.2.0/bin/node";
+    let worker = "/Users/me/.paseo/terminal-worker/0.15.0-09a73ff83cc7/terminal-worker.mjs";
+    let with = |p: ProcInfo, key: &str, value: &str| ProcInfo {
+        env: vec![(key.into(), value.into())],
+        ..p
+    };
+    let m = build(vec![
+        proc(1, 0, "/sbin/launchd", &[]),
+        proc(300, 1, node, &["Paseo Supervisor"]),
+        proc(400, 300, node, &["Paseo Daemon"]),
+        proc(401, 1, node, &[node, worker, "--paseo-terminal-worker", "dce52d30"]),
+        with(proc(410, 401, "/bin/zsh", &["-zsh"]), "PASEO_TERMINAL_ID", "t1"),
+        with(
+            proc(411, 410, "/usr/local/bin/claude", &["claude"]),
+            "PASEO_TERMINAL_ID",
+            "t1",
+        ),
+        with(
+            proc(420, 400, "/usr/local/bin/codex", &["codex", "app-server"]),
+            "PASEO_AGENT_ID",
+            "a1",
+        ),
+    ]);
+    assert!(m.orphans.is_empty(), "{:?}", m.orphans);
+    let paseo = group(&m, "paseo");
+    assert_eq!(paseo.host_pids, [300, 400, 401]);
+    let roots: Vec<u32> = paseo.tabs.iter().map(|t| t.sessions[0].root_pid).collect();
+    assert_eq!(roots, [411, 420]);
+    assert_eq!(paseo.tabs[0].tab_ids, ["paseo:t1"]);
+}
+
+#[test]
 fn parent_cycles_from_pid_reuse_do_not_hang() {
     // 100 started 200 and exited; within the same second a child of 200 reused PID 100.
     let (tx, rx) = std::sync::mpsc::channel();

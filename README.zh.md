@@ -1,7 +1,7 @@
 <h1 align="center">agentlens</h1>
 
 <p align="center">
-  <b>查看编码智能体启动的每一个进程，并安全地清理它们留下的东西。</b>
+  <b>找出 Claude Code、Codex 等编码智能体启动后遗忘的进程，凭证据说明它属于哪个会话，并安全地清理掉。</b>
 </p>
 
 <p align="center">
@@ -33,7 +33,7 @@ agentlens 对每个进程回答两个问题：**它是谁的？它的主人还�
 ## 亮点
 
 - **知道进程属于谁。** 为 [45 种智能体](#支持的智能体与宿主)（Claude Code、Codex、opencode、Gemini CLI、Copilot CLI、
-  Aider、Goose 等）构建 宿主 → 标签页 → 会话 → 进程 的树。支持的宿主包括 Orca、VS Code、Cursor、JetBrains、
+  Aider、Goose 等）构建 宿主 → 标签页 → 会话 → 进程 的树。支持的宿主包括 Orca、Paseo、VS Code、Cursor、JetBrains、
   Windows Terminal、iTerm2、Ghostty、cmux、tmux、herdr、SSH 登录和 WSL。
 - **凭证据而不是名字找出遗留进程。** 它记录在会话下看到过的进程（谱系）；读取智能体写入其启动的所有进程中的会话和 PID
   （出生记录）；在 Windows 上还会检查是否还有人能与 stdio 服务器通信。每个候选都会显示依据，例如
@@ -95,19 +95,20 @@ agentlens 通过命令名识别以下 45 种智能体，包括通过 npm 安装�
 
 | 宿主 | 进程 | 宿主 | 进程 | 宿主 | 进程 |
 |---|---|---|---|---|---|
-| <img src="docs/images/hosts/orca.png" width="16" height="16" alt=""> Orca | `orca` | <img src="docs/images/agents/claude.svg" width="16" height="16" alt=""> Claude Desktop | `Claude.app`, `AnthropicClaude` | <img src="docs/images/hosts/vscode.png" width="16" height="16" alt=""> VS Code | `code` |
-| <img src="docs/images/agents/cursor.png" width="16" height="16" alt=""> Cursor | `cursor` | <img src="docs/images/hosts/windsurf.png" width="16" height="16" alt=""> Windsurf | `windsurf` | <img src="docs/images/agents/kiro.png" width="16" height="16" alt=""> Kiro | `kiro` |
-| <img src="docs/images/agents/antigravity.png" width="16" height="16" alt=""> Antigravity | `antigravity` | <img src="docs/images/agents/trae.png" width="16" height="16" alt=""> Trae | `trae` | <img src="docs/images/hosts/zed.png" width="16" height="16" alt=""> Zed | `zed` |
-| <img src="docs/images/hosts/jetbrains.png" width="16" height="16" alt=""> JetBrains IDEs | `idea64`, `pycharm64`, … | <img src="docs/images/hosts/windows-terminal.png" width="16" height="16" alt=""> Windows Terminal | `WindowsTerminal` | <img src="docs/images/hosts/macos-terminal.png" width="16" height="16" alt=""> Terminal (macOS) | `Terminal.app` |
-| <img src="docs/images/hosts/iterm2.png" width="16" height="16" alt=""> iTerm2 | `iTerm.app` | <img src="docs/images/hosts/ghostty.png" width="16" height="16" alt=""> Ghostty | `ghostty` | <img src="docs/images/hosts/kitty.png" width="16" height="16" alt=""> kitty | `kitty` |
-| <img src="docs/images/hosts/wezterm.png" width="16" height="16" alt=""> WezTerm | `wezterm-gui` | <img src="docs/images/hosts/alacritty.png" width="16" height="16" alt=""> Alacritty | `alacritty` | <img src="docs/images/hosts/warp.png" width="16" height="16" alt=""> Warp | `warp` |
-| <img src="docs/images/hosts/wave.png" width="16" height="16" alt=""> Wave | `wave` | <img src="docs/images/hosts/tabby.png" width="16" height="16" alt=""> Tabby | `tabby` | <img src="docs/images/hosts/cmux.png" width="16" height="16" alt=""> cmux | `cmux` |
-| <img src="docs/images/hosts/gnome-terminal.png" width="16" height="16" alt=""> GNOME Terminal | `gnome-terminal-server` | <img src="docs/images/hosts/konsole.png" width="16" height="16" alt=""> Konsole | `konsole` | <img src="docs/images/hosts/xfce-terminal.svg" width="16" height="16" alt=""> Xfce Terminal | `xfce4-terminal` |
-| <img src="docs/images/hosts/tilix.svg" width="16" height="16" alt=""> Tilix | `tilix` | <img src="docs/images/hosts/terminator.png" width="16" height="16" alt=""> Terminator | `terminator` | <img src="docs/images/hosts/xterm.png" width="16" height="16" alt=""> xterm | `xterm` |
-| <img src="docs/images/hosts/ssh.png" width="16" height="16" alt=""> SSH 登录 | `sshd`, `sshd-session` | <img src="docs/images/hosts/wsl.png" width="16" height="16" alt=""> WSL | `SessionLeader` | <img src="docs/images/hosts/tmux.svg" width="16" height="16" alt=""> tmux | `tmux` |
-| <img src="docs/images/hosts/herdr.svg" width="16" height="16" alt=""> herdr | `herdr` | <img src="docs/images/hosts/screen.png" width="16" height="16" alt=""> screen | `screen` | <img src="docs/images/hosts/ego.png" width="16" height="16" alt=""> ego browser | `ego` |
+| <img src="docs/images/hosts/orca.png" width="16" height="16" alt=""> Orca | `orca` | <img src="docs/images/hosts/paseo.png" width="16" height="16" alt=""> Paseo | `Paseo`, `Paseo Daemon` (`node`) | <img src="docs/images/agents/claude.svg" width="16" height="16" alt=""> Claude Desktop | `Claude.app`, `AnthropicClaude` |
+| <img src="docs/images/hosts/vscode.png" width="16" height="16" alt=""> VS Code | `code` | <img src="docs/images/agents/cursor.png" width="16" height="16" alt=""> Cursor | `cursor` | <img src="docs/images/hosts/windsurf.png" width="16" height="16" alt=""> Windsurf | `windsurf` |
+| <img src="docs/images/agents/kiro.png" width="16" height="16" alt=""> Kiro | `kiro` | <img src="docs/images/agents/antigravity.png" width="16" height="16" alt=""> Antigravity | `antigravity` | <img src="docs/images/agents/trae.png" width="16" height="16" alt=""> Trae | `trae` |
+| <img src="docs/images/hosts/zed.png" width="16" height="16" alt=""> Zed | `zed` | <img src="docs/images/hosts/jetbrains.png" width="16" height="16" alt=""> JetBrains IDEs | `idea64`, `pycharm64`, … | <img src="docs/images/hosts/windows-terminal.png" width="16" height="16" alt=""> Windows Terminal | `WindowsTerminal` |
+| <img src="docs/images/hosts/macos-terminal.png" width="16" height="16" alt=""> Terminal (macOS) | `Terminal.app` | <img src="docs/images/hosts/iterm2.png" width="16" height="16" alt=""> iTerm2 | `iTerm.app` | <img src="docs/images/hosts/ghostty.png" width="16" height="16" alt=""> Ghostty | `ghostty` |
+| <img src="docs/images/hosts/kitty.png" width="16" height="16" alt=""> kitty | `kitty` | <img src="docs/images/hosts/wezterm.png" width="16" height="16" alt=""> WezTerm | `wezterm-gui` | <img src="docs/images/hosts/alacritty.png" width="16" height="16" alt=""> Alacritty | `alacritty` |
+| <img src="docs/images/hosts/warp.png" width="16" height="16" alt=""> Warp | `warp` | <img src="docs/images/hosts/wave.png" width="16" height="16" alt=""> Wave | `wave` | <img src="docs/images/hosts/tabby.png" width="16" height="16" alt=""> Tabby | `tabby` |
+| <img src="docs/images/hosts/cmux.png" width="16" height="16" alt=""> cmux | `cmux` | <img src="docs/images/hosts/gnome-terminal.png" width="16" height="16" alt=""> GNOME Terminal | `gnome-terminal-server` | <img src="docs/images/hosts/konsole.png" width="16" height="16" alt=""> Konsole | `konsole` |
+| <img src="docs/images/hosts/xfce-terminal.svg" width="16" height="16" alt=""> Xfce Terminal | `xfce4-terminal` | <img src="docs/images/hosts/tilix.svg" width="16" height="16" alt=""> Tilix | `tilix` | <img src="docs/images/hosts/terminator.png" width="16" height="16" alt=""> Terminator | `terminator` |
+| <img src="docs/images/hosts/xterm.png" width="16" height="16" alt=""> xterm | `xterm` | <img src="docs/images/hosts/ssh.png" width="16" height="16" alt=""> SSH 登录 | `sshd`, `sshd-session` | <img src="docs/images/hosts/wsl.png" width="16" height="16" alt=""> WSL | `SessionLeader` |
+| <img src="docs/images/hosts/tmux.svg" width="16" height="16" alt=""> tmux | `tmux` | <img src="docs/images/hosts/herdr.svg" width="16" height="16" alt=""> herdr | `herdr` | <img src="docs/images/hosts/screen.png" width="16" height="16" alt=""> screen | `screen` |
+| <img src="docs/images/hosts/ego.png" width="16" height="16" alt=""> ego browser | `ego` |   |   |   |   |
 
-为每个标签页设置变量的宿主按该变量划分标签页：Orca（`ORCA_TAB_ID`，每个 worktree 一行）、Windows Terminal
+为每个标签页设置变量的宿主按该变量划分标签页：Orca（`ORCA_TAB_ID`，每个 worktree 一行）、Paseo（`PASEO_TERMINAL_ID`；Paseo 自己启动的智能体各占一个标签页）、Windows Terminal
 （`WT_SESSION`）和 cmux（`CMUX_WORKSPACE_ID`，每个 workspace 一个标签页）。每个 SSH 登录、每个 tmux、herdr 或 screen
 窗格都是一个标签页。不在此列表中的程序启动智能体时会显示为 "(unregistered)"，在 Sessions 中按 `h` 即可把它加入规则。
 
