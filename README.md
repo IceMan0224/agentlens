@@ -181,10 +181,11 @@ with their evidence:
 | 2 Cleanup | Cleanup candidates and the evidence for each (yellow = proposed) | `space` mark, `x` end marked |
 | 3 Network | SSH connections, keys, known hosts | `d` disconnect |
 | 4 Ports | Listening ports of sessions and leftovers | `k` end the owner, `a` all ports |
-| 5 Rules | How leftovers are found, the agents and hosts on this PC in yellow (commands on `PATH`, app launchers: Start Menu, `.desktop`, `.app`, and whatever is running) and the rest of the catalog, rules file | `e` edit, `r` reload |
-| 6 Settings | Language, automatic cleanup, idle threshold, leftovers to keep, agent hooks, agent MCP | `←/→`/`enter` change |
+| 5 Containers | Docker containers by compose project, with the checkout each was started from and the live session working there; projects whose checkout is gone are proposed (yellow) | `space` mark a project, `x` stop running and remove stopped containers (volumes kept) |
+| 6 Rules | How leftovers are found, the agents and hosts on this PC in yellow (commands on `PATH`, app launchers: Start Menu, `.desktop`, `.app`, and whatever is running) and the rest of the catalog, rules file | `e` edit, `r` reload |
+| 7 Settings | Language, automatic cleanup, idle threshold, leftovers to keep, agent hooks, agent MCP | `←/→`/`enter` change |
 
-Common keys: `1`–`6` or `tab` switch views, `s` sort (memory, CPU, idle), mouse wheel and
+Common keys: `1`–`7` or `tab` switch views, `s` sort (memory, CPU, idle), mouse wheel and
 clicks, `q` quit.
 
 ## How it works

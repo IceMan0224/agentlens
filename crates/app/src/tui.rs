@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use agentlens_core::actions::{self, KillPlan, Outcome};
 use agentlens_core::catalog::Catalog;
+use agentlens_core::containers::{self, ContainerPlan, Docker, Place, Project};
 use agentlens_core::health::{
     Candidate, CandidateKind, History, SessionState, candidates, fmt_duration, session_state, short_cmd, tree_label,
 };
@@ -35,15 +36,20 @@ use crate::report::{mb, role_label};
 use crate::tools;
 
 /// In the order of `View`'s variants: a view's index is `view as usize`.
-const VIEWS: [View; 6] = [
+const VIEWS: [View; 7] = [
     View::Sessions,
     View::Cleanup,
     View::Network,
     View::Ports,
+    View::Containers,
     View::Rules,
     View::Settings,
 ];
 const REFRESH: Duration = Duration::from_secs(1);
+/// How often containers are read: while their view is open, and otherwise (for the summary and
+/// leftover proposals). Each read starts a `docker` process.
+const DOCKER_FAST: Duration = Duration::from_secs(5);
+const DOCKER_SLOW: Duration = Duration::from_secs(30);
 /// Choices offered in Settings; other values typed into the rules file are kept as they are.
 const AUTO_CLEANUP_MINUTES: [u64; 6] = [0, 5, 10, 15, 30, 60];
 const IDLE_MINUTES: [u64; 5] = [10, 15, 30, 60, 120];
@@ -67,6 +73,7 @@ enum View {
     Cleanup,
     Network,
     Ports,
+    Containers,
     Rules,
     Settings,
 }
@@ -78,6 +85,7 @@ impl View {
             View::Cleanup => t(lang, "Cleanup", "정리"),
             View::Network => t(lang, "Network", "네트워크"),
             View::Ports => t(lang, "Ports", "포트"),
+            View::Containers => t(lang, "Containers", "컨테이너"),
             View::Rules => t(lang, "Rules", "규칙"),
             View::Settings => t(lang, "Settings", "설정"),
         }
@@ -143,9 +151,20 @@ impl Item {
     }
 }
 
+/// A row of the Containers view.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Docked {
+    /// By project name.
+    Project(String),
+    /// By project name and container ID.
+    Container(String, String),
+}
+
 struct Confirm {
     title: String,
     plan: KillPlan,
+    /// Set when the dialog stops and removes containers instead of ending processes.
+    containers: Option<ContainerPlan>,
     refusals: Vec<String>,
 }
 
@@ -178,8 +197,8 @@ pub struct App {
     ssh_keys: SshInventory,
     view: View,
     sort: Sort,
-    selected: [usize; 6],
-    offsets: [usize; 6],
+    selected: [usize; 7],
+    offsets: [usize; 7],
     flipped: HashSet<String>,
     marked: HashSet<u32>,
     /// Candidate root -> when it was first seen, or first proposed.
@@ -190,6 +209,14 @@ pub struct App {
     last_auto_cleanup: Option<u64>,
     /// When it last ended something or found nothing, and what happened.
     auto_cleanup_result: Option<(u64, String)>,
+    docker: Docker,
+    /// Container projects marked for cleanup, by name.
+    docker_marked: HashSet<String>,
+    /// Leftover projects proposed (and pre-marked) once; a later unmark is kept.
+    docker_proposed: HashSet<String>,
+    /// The docker thread, absent in a replay and in tests.
+    docker_tx: Option<mpsc::Sender<DockerCmd>>,
+    docker_rx: Option<mpsc::Receiver<DockerMsg>>,
     confirm: Option<Confirm>,
     detail: bool,
     /// Outcome of the last key press, shown instead of the key hints until the next one.
@@ -234,14 +261,19 @@ impl App {
             ssh_config,
             view: View::Sessions,
             sort: Sort::Memory,
-            selected: [0; 6],
-            offsets: [0; 6],
+            selected: [0; 7],
+            offsets: [0; 7],
             flipped: HashSet::new(),
             marked: HashSet::new(),
             seen_candidates: HashMap::new(),
             proposed: HashSet::new(),
             last_auto_cleanup: None,
             auto_cleanup_result: None,
+            docker: Docker::Pending,
+            docker_marked: HashSet::new(),
+            docker_proposed: HashSet::new(),
+            docker_tx: None,
+            docker_rx: None,
             confirm: None,
             detail: false,
             status: String::new(),
@@ -685,6 +717,110 @@ impl App {
             .collect()
     }
 
+    fn projects(&self) -> &[Project] {
+        match &self.docker {
+            Docker::Ready(projects) => projects,
+            _ => &[],
+        }
+    }
+
+    fn docked(&self) -> Vec<Docked> {
+        let mut out = Vec::new();
+        for p in self.projects() {
+            out.push(Docked::Project(p.name.clone()));
+            out.extend(
+                p.containers
+                    .iter()
+                    .map(|c| Docked::Container(p.name.clone(), c.id.clone())),
+            );
+        }
+        out
+    }
+
+    fn container_rows(&self) -> Vec<Row<'static>> {
+        let lang = self.lang();
+        let mut rows = Vec::new();
+        for p in self.projects() {
+            let mark = if self.docker_marked.contains(&p.name) {
+                "[x]"
+            } else {
+                "[ ]"
+            };
+            let (running, total) = (p.running(), p.containers.len());
+            let state = if running == 0 {
+                tf!(lang, "{total} stopped", "{total}개 정지")
+            } else {
+                tf!(lang, "{running}/{total} running", "{running}/{total}개 실행 중")
+            };
+            let dir = p.working_dir.as_deref().unwrap_or("-");
+            let info = match &p.place {
+                Place::Gone => tf!(lang, "checkout gone: {dir}", "체크아웃 사라짐: {dir}"),
+                Place::Here { checkout } => {
+                    let mut owners = self
+                        .model
+                        .as_ref()
+                        .map(|m| {
+                            containers::owners(m, p)
+                                .into_iter()
+                                .map(|(g, t, s)| {
+                                    let tab = &m.groups[g].tabs[t];
+                                    format!("{} @ {} / {}", tab.sessions[s].agent_name, m.groups[g].name, tab.label)
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    // Sessions of one tab read the same.
+                    owners.dedup();
+                    if owners.is_empty() {
+                        tf!(
+                            lang,
+                            "no live session in {checkout}",
+                            "{checkout}에서 작업 중인 세션 없음"
+                        )
+                    } else {
+                        owners.join(", ")
+                    }
+                }
+                Place::Unknown if p.compose && p.working_dir.is_some() => {
+                    tf!(lang, "cannot check here: {dir}", "이 PC에서 확인 불가: {dir}")
+                }
+                Place::Unknown if p.compose => t(lang, "no working directory", "작업 폴더 정보 없음").into(),
+                Place::Unknown => t(lang, "started on its own, not compose", "compose 없이 직접 실행").into(),
+            };
+            let style = if p.leftover() {
+                Style::new().fg(YELLOW).bold()
+            } else {
+                Style::new().fg(CYAN).bold()
+            };
+            rows.push(
+                Row::new(vec![
+                    Cell::from(mark),
+                    Cell::from(p.name.clone()),
+                    Cell::from(state),
+                    Cell::from(""),
+                    Cell::from(""),
+                    Cell::from(info),
+                ])
+                .style(style),
+            );
+            for c in &p.containers {
+                let style = if c.running() { Style::new() } else { Style::new().dim() };
+                rows.push(
+                    Row::new(vec![
+                        Cell::from(""),
+                        Cell::from(format!("  {}", c.service.as_deref().unwrap_or(&c.name))),
+                        Cell::from(c.status.clone()),
+                        Cell::from(c.image.clone()),
+                        Cell::from(containers::short_ports(&c.ports)),
+                        Cell::from(c.name.clone()),
+                    ])
+                    .style(style),
+                );
+            }
+        }
+        rows
+    }
+
     fn settings(&self) -> Vec<Setting> {
         let hooks = self
             .catalog
@@ -865,6 +1001,7 @@ impl App {
             View::Cleanup => self.candidates.len(),
             View::Network => self.ssh.len(),
             View::Ports => self.visible_ports().len(),
+            View::Containers => self.docked().len(),
             View::Rules => self.rules_lines().len(),
             View::Settings => self.settings().len(),
         }
@@ -972,6 +1109,11 @@ impl App {
                 "k/x/del 주인 종료 · a 에이전트 관련만",
             ),
             View::Ports => t(lang, "k/x/del end owner · a all", "k/x/del 주인 종료 · a 전체 보기"),
+            View::Containers => t(
+                lang,
+                "space mark project · x/del stop running, remove stopped",
+                "space 프로젝트 표시 · x/del 실행 중이면 정지, 정지됐으면 삭제",
+            ),
             View::Settings => t(lang, "←→/enter change", "←→/enter 변경"),
             View::Rules => t(
                 lang,
@@ -979,7 +1121,7 @@ impl App {
                 "↑↓ 스크롤 · e 편집 · r 다시 읽기",
             ),
         };
-        let common = t(lang, "1-6 views · q quit", "1-6 화면 · q 종료");
+        let common = t(lang, "1-7 views · q quit", "1-7 화면 · q 종료");
         if self.replay {
             let replay = t(lang, "replay: read-only", "재생 중: 읽기 전용");
             format!("{replay} · {view} · {common}")
@@ -1031,7 +1173,15 @@ impl App {
                 tf!(lang, "cleanup {eligible}", "정리 가능 {eligible}"),
                 Style::new().fg(YELLOW),
             ),
-            Span::raw(tf!(lang, " · ssh {ssh} · sort {sort} ", " · SSH {ssh} · 정렬 {sort} ")),
+            Span::raw(tf!(lang, " · ssh {ssh}", " · SSH {ssh}")),
+            Span::styled(
+                match self.projects().iter().filter(|p| p.leftover()).count() {
+                    0 => String::new(),
+                    n => tf!(lang, " · leftover containers {n}", " · 남은 컨테이너 {n}"),
+                },
+                Style::new().fg(YELLOW),
+            ),
+            Span::raw(tf!(lang, " · sort {sort} ", " · 정렬 {sort} ")),
         ])
     }
 
@@ -1130,6 +1280,30 @@ impl App {
                     )
                 },
             ),
+            View::Containers => (
+                vec![
+                    "",
+                    t(lang, "Project / service", "프로젝트 / 서비스"),
+                    t(lang, "State", "상태"),
+                    t(lang, "Image", "이미지"),
+                    t(lang, "Ports", "포트"),
+                    t(lang, "Checkout and session / container", "체크아웃과 세션 / 컨테이너"),
+                ],
+                vec![
+                    Constraint::Length(3),
+                    Constraint::Fill(2),
+                    Constraint::Length(26),
+                    Constraint::Fill(2),
+                    Constraint::Fill(2),
+                    Constraint::Fill(4),
+                ],
+                self.container_rows(),
+                t(
+                    lang,
+                    "Docker containers by compose project (yellow = checkout gone, proposed)",
+                    "compose 프로젝트별 Docker 컨테이너 (노란색 = 체크아웃 사라짐, 기본 제안)",
+                ),
+            ),
             View::Settings => (
                 vec![
                     t(lang, "Setting", "설정"),
@@ -1157,7 +1331,23 @@ impl App {
         self.offsets[v] = state.offset();
         self.table_area = area;
         if empty {
+            let docker_msg;
             let msg = match self.view {
+                View::Containers => {
+                    docker_msg = match &self.docker {
+                        _ if self.replay => t(
+                            lang,
+                            "containers are not read in a replay",
+                            "재생 중에는 컨테이너를 읽지 않음",
+                        )
+                        .to_string(),
+                        Docker::Pending => t(lang, "reading docker…", "docker 읽는 중…").into(),
+                        Docker::Missing => t(lang, "docker is not installed", "docker가 설치되어 있지 않음").into(),
+                        Docker::Failed(e) => tf!(lang, "docker did not answer: {e}", "docker 응답 없음: {e}"),
+                        Docker::Ready(_) => t(lang, "no containers", "컨테이너 없음").into(),
+                    };
+                    docker_msg.as_str()
+                }
                 View::Cleanup => t(lang, "nothing to clean up", "정리할 항목 없음"),
                 View::Network => t(lang, "no SSH connections", "SSH 연결 없음"),
                 View::Ports => t(
@@ -1348,6 +1538,37 @@ impl App {
             Line::from(t(lang, "How orphans are found", "고아 프로세스 판정 원리")).bold(),
         ];
         lines.extend(orphans.iter().map(|l| Line::from(format!("  · {l}"))));
+        // Mirrors the core `containers` module.
+        let docker: [&str; 3] = match lang {
+            Language::En => [
+                "Containers are not processes of a session: docker runs them in its own engine. A compose \
+                 project labels its containers with the directory it was started from, and that directory \
+                 tells whose they are.",
+                "A live session owns the project when one of its processes works inside the same git \
+                 checkout. When the directory is gone (a deleted worktree) the project is proposed for \
+                 cleanup. Paths this PC cannot check (WSL paths on Windows, a remote engine) are never \
+                 judged gone. Containers started without compose have no directory and are only shown.",
+                "Cleanup stops running containers and removes stopped ones; a proposed project's are also \
+                 removed once stopped. Volumes and images are kept, protect rules cover container, image \
+                 and project names, and automatic cleanup never touches containers.",
+            ],
+            Language::Ko => [
+                "컨테이너는 세션의 프로세스가 아니라 docker 엔진 안에서 돕니다. compose 프로젝트는 컨테이너에 \
+                 실행한 폴더를 라벨로 남기고, 그 폴더로 주인을 판단합니다.",
+                "살아 있는 세션의 프로세스가 같은 git 체크아웃 안에서 작업 중이면 그 세션 소유입니다. 폴더가 \
+                 사라졌으면(worktree 삭제) 정리 후보로 기본 제안합니다. 이 PC에서 확인할 수 없는 경로(Windows에서 \
+                 본 WSL 경로, 원격 엔진)는 사라졌다고 판단하지 않습니다. compose 없이 띄운 컨테이너는 폴더 정보가 \
+                 없어 보여 주기만 합니다.",
+                "정리는 실행 중인 컨테이너를 정지하고 정지된 컨테이너를 삭제합니다. 기본 제안된 프로젝트는 정지 \
+                 후 바로 삭제합니다. 볼륨과 이미지는 남기고, 보호 규칙은 컨테이너·이미지·프로젝트 이름에도 \
+                 적용되며, 자동 정리는 컨테이너를 건드리지 않습니다.",
+            ],
+        };
+        lines.extend([
+            Line::from(""),
+            Line::from(t(lang, "How containers are judged", "컨테이너 판정 원리")).bold(),
+        ]);
+        lines.extend(docker.iter().map(|l| Line::from(format!("  · {l}"))));
         // Mirrors `helper_kind` in the core model.
         let procs: [&str; 3] = match lang {
             Language::En => [
@@ -1520,6 +1741,24 @@ impl App {
         frame.render_widget(Clear, area);
         frame.render_widget(Block::new().style(BASE), area);
         let mut lines = vec![Line::from(c.title.clone()).bold(), Line::from("")];
+        if let Some(plan) = &c.containers {
+            let stop = plan.stop.iter().map(|(_, n)| (t(lang, "stop  ", "정지"), n));
+            let remove = plan.remove.iter().map(|(_, n)| (t(lang, "remove", "삭제"), n));
+            let all: Vec<_> = stop.chain(remove).collect();
+            for (verb, name) in all.iter().take(10) {
+                lines.push(Line::from(format!("  {verb} {name}")));
+            }
+            if all.len() > 10 {
+                let more = all.len() - 10;
+                lines.push(Line::from(tf!(lang, "  … and {more} more", "  … 외 {more}개")));
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::from(t(
+                lang,
+                "volumes and images are kept",
+                "볼륨과 이미지는 남겨 둡니다",
+            )));
+        }
         for t in c.plan.targets.iter().take(10) {
             lines.push(Line::from(format!("  {} {}", t.name, t.pid)));
         }
@@ -1527,15 +1766,21 @@ impl App {
             let more = c.plan.targets.len() - 10;
             lines.push(Line::from(tf!(lang, "  … and {more} more", "  … 외 {more}개")));
         }
-        lines.push(Line::from(""));
-        let (freed, conns) = (mb(c.plan.private_bytes), c.plan.connections);
-        lines.push(Line::from(tf!(
-            lang,
-            "frees ~{freed} private · closes {conns} connections",
-            "전용 메모리 약 {freed} 확보 · 연결 {conns}개 끊김"
-        )));
+        if c.containers.is_none() {
+            lines.push(Line::from(""));
+            let (freed, conns) = (mb(c.plan.private_bytes), c.plan.connections);
+            lines.push(Line::from(tf!(
+                lang,
+                "frees ~{freed} private · closes {conns} connections",
+                "전용 메모리 약 {freed} 확보 · 연결 {conns}개 끊김"
+            )));
+        }
         if c.refusals.is_empty() {
-            lines.push(Line::from(t(lang, "y: end   n / esc: cancel", "y: 종료   n / esc: 취소")).fg(YELLOW));
+            let yes = match c.containers {
+                Some(_) => t(lang, "y: clean up   n / esc: cancel", "y: 정리   n / esc: 취소"),
+                None => t(lang, "y: end   n / esc: cancel", "y: 종료   n / esc: 취소"),
+            };
+            lines.push(Line::from(yes).fg(YELLOW));
         } else {
             for r in &c.refusals {
                 let r = phrase(lang, r);
@@ -1611,6 +1856,12 @@ impl App {
             self.ssh_config = net::load_ssh_config();
             self.ssh_keys = keys::load_default(&self.ssh_config);
         }
+        let containers = VIEWS[i] == View::Containers;
+        if let Some(tx) = &self.docker_tx
+            && containers != (self.view == View::Containers)
+        {
+            let _ = tx.send(DockerCmd::Fast(containers));
+        }
         self.view = VIEWS[i];
     }
 
@@ -1652,7 +1903,7 @@ impl App {
         match k.code {
             KeyCode::Char('q') | KeyCode::Esc => self.quit = true,
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
-            KeyCode::Char(d @ '1'..='6') => self.set_view(d as usize - '1' as usize),
+            KeyCode::Char(d @ '1'..='7') => self.set_view(d as usize - '1' as usize),
             KeyCode::Tab => self.set_view((self.view_index() + 1) % VIEWS.len()),
             KeyCode::BackTab => self.set_view((self.view_index() + VIEWS.len() - 1) % VIEWS.len()),
             KeyCode::Down => self.move_by(1),
@@ -1688,6 +1939,17 @@ impl App {
                 self.ask_end_port()
             }
             KeyCode::Char('a') if self.view == View::Ports => self.all_ports = !self.all_ports,
+            KeyCode::Char(' ') if self.view == View::Containers => {
+                if let Some(Docked::Project(name) | Docked::Container(name, _)) =
+                    self.docked().get(self.selected[View::Containers as usize])
+                    && !self.docker_marked.remove(name)
+                {
+                    self.docker_marked.insert(name.clone());
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Char('x') | KeyCode::Delete if self.view == View::Containers => {
+                self.ask_containers()
+            }
             KeyCode::Left if self.view == View::Settings => self.change_setting(-1),
             KeyCode::Right | KeyCode::Enter | KeyCode::Char(' ') if self.view == View::Settings => {
                 self.change_setting(1)
@@ -1714,7 +1976,12 @@ impl App {
     fn ask_plan(&mut self, title: String, plan: actions::KillPlan) {
         let Some(m) = self.model.as_ref() else { return };
         let refusals = actions::refusals(&plan, m, &self.catalog, self.self_pid);
-        self.confirm = Some(Confirm { title, plan, refusals });
+        self.confirm = Some(Confirm {
+            title,
+            plan,
+            containers: None,
+            refusals,
+        });
     }
 
     fn ask_end_selected(&mut self) {
@@ -1860,13 +2127,118 @@ impl App {
         self.ask_plan(title, plan);
     }
 
+    /// Cleans up the marked projects, or else the selected project or container: running
+    /// containers are stopped, stopped ones removed, volumes kept.
+    fn ask_containers(&mut self) {
+        let lang = self.lang();
+        let docked = self.docked();
+        let marked: Vec<&Project> = self
+            .projects()
+            .iter()
+            .filter(|p| self.docker_marked.contains(&p.name))
+            .collect();
+        let (projects, only): (Vec<&Project>, Option<&str>) = if !marked.is_empty() {
+            (marked, None)
+        } else {
+            match docked.get(self.selected[View::Containers as usize]) {
+                Some(Docked::Project(name)) => (self.projects().iter().filter(|p| &p.name == name).collect(), None),
+                Some(Docked::Container(name, id)) => (
+                    self.projects().iter().filter(|p| &p.name == name).collect(),
+                    Some(id.as_str()),
+                ),
+                None => (Vec::new(), None),
+            }
+        };
+        let plan = containers::plan(&projects, only);
+        if plan.is_empty() {
+            self.status = t(lang, "nothing selected", "선택된 항목 없음").into();
+            return;
+        }
+        let refusals = containers::refusals(&projects, &plan, &self.catalog.protect);
+        let names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
+        let (names, stop, remove) = (names.join(", "), plan.stop.len(), plan.remove.len());
+        let title = tf!(
+            lang,
+            "Clean up {names}: stop {stop}, remove {remove} container(s)?",
+            "{names} 정리: 컨테이너 {stop}개 정지, {remove}개 삭제할까요?"
+        );
+        self.confirm = Some(Confirm {
+            title,
+            plan: KillPlan::default(),
+            containers: Some(plan),
+            refusals,
+        });
+    }
+
     fn run_confirmed(&mut self) {
         let Some(c) = self.confirm.take() else { return };
         if self.read_only() {
             return;
         }
+        if let Some(plan) = c.containers {
+            if let Some(tx) = &self.docker_tx {
+                let _ = tx.send(DockerCmd::Run(plan));
+                self.status = t(
+                    self.lang(),
+                    "stopping and removing containers…",
+                    "컨테이너 정지·삭제 중…",
+                )
+                .into();
+            }
+            return;
+        }
         self.status = summarize(self.lang(), &actions::execute(&c.plan));
         self.refresh_now = true;
+    }
+
+    /// Takes what the docker thread sent; true when there was anything.
+    fn poll_docker(&mut self) -> bool {
+        let msgs: Vec<DockerMsg> = match &self.docker_rx {
+            Some(rx) => rx.try_iter().collect(),
+            None => return false,
+        };
+        let any = !msgs.is_empty();
+        for msg in msgs {
+            self.apply_docker(msg);
+        }
+        any
+    }
+
+    fn apply_docker(&mut self, msg: DockerMsg) {
+        let lang = self.lang();
+        match msg {
+            DockerMsg::Read(docker) => {
+                // Keep the cursor on the same row as projects come and go.
+                let v = View::Containers as usize;
+                let was = self.docked().get(self.selected[v]).cloned();
+                self.docker = docker;
+                if let Some(i) = was.and_then(|w| self.docked().iter().position(|d| *d == w)) {
+                    self.selected[v] = i;
+                }
+                let Docker::Ready(projects) = &self.docker else { return };
+                for p in projects {
+                    if p.leftover() && self.docker_proposed.insert(p.name.clone()) {
+                        self.docker_marked.insert(p.name.clone());
+                    }
+                }
+                let alive: HashSet<&String> = projects.iter().map(|p| &p.name).collect();
+                self.docker_marked.retain(|n| alive.contains(n));
+                self.docker_proposed.retain(|n| alive.contains(n));
+            }
+            DockerMsg::Done(done) => {
+                let (stopped, removed) = (done.stopped, done.removed);
+                self.status = tf!(
+                    lang,
+                    "containers: {stopped} stopped, {removed} removed",
+                    "컨테이너 {stopped}개 정지, {removed}개 삭제"
+                );
+                if !done.errors.is_empty() {
+                    let errors = done.errors.join("; ");
+                    self.status
+                        .push_str(&tf!(lang, " · failed: {errors}", " · 실패: {errors}"));
+                }
+            }
+        }
     }
 
     /// Answers the questions agents sent through `agentlens mcp`; true when there were any.
@@ -2380,6 +2752,45 @@ fn short_key(key: &str) -> String {
     }
 }
 
+/// Messages to the docker thread.
+enum DockerCmd {
+    /// Read often (the Containers view is open) or rarely; either way, read now.
+    Fast(bool),
+    Run(ContainerPlan),
+}
+
+enum DockerMsg {
+    Read(Docker),
+    Done(containers::Done),
+}
+
+/// Reads the containers now and then, and runs confirmed cleanups, so a slow `docker stop`
+/// never holds up the dashboard.
+fn spawn_docker() -> (mpsc::Sender<DockerCmd>, mpsc::Receiver<DockerMsg>) {
+    let (cmd_tx, cmd_rx) = mpsc::channel::<DockerCmd>();
+    let (msg_tx, msg_rx) = mpsc::channel::<DockerMsg>();
+    std::thread::spawn(move || {
+        let local = containers::engine_is_local();
+        let mut fast = false;
+        loop {
+            if msg_tx.send(DockerMsg::Read(containers::read(local))).is_err() {
+                return;
+            }
+            match cmd_rx.recv_timeout(if fast { DOCKER_FAST } else { DOCKER_SLOW }) {
+                Ok(DockerCmd::Fast(f)) => fast = f,
+                Ok(DockerCmd::Run(plan)) => {
+                    if msg_tx.send(DockerMsg::Done(containers::execute(&plan))).is_err() {
+                        return;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            }
+        }
+    });
+    (cmd_tx, msg_rx)
+}
+
 /// Messages to the collector thread.
 enum Wake {
     /// Snapshot now; connections may have closed.
@@ -2401,6 +2812,9 @@ fn popup(area: Rect, width: u16, height: u16) -> Rect {
 pub fn run(rules: Rules, installed: Vec<(String, String)>) -> anyhow::Result<()> {
     let mut app = App::new(rules, installed);
     app.installed_hosts = install::scan_hosts(&app.catalog);
+    let (docker_tx, docker_rx) = spawn_docker();
+    app.docker_tx = Some(docker_tx);
+    app.docker_rx = Some(docker_rx);
     let (snap_tx, snap_rx) = mpsc::channel::<Snapshot>();
     let (wake_tx, wake_rx) = mpsc::channel::<Wake>();
     let mut collector = Collector::new(app.catalog.env_keys());
@@ -2488,6 +2902,7 @@ fn event_loop(
             }
         }
         dirty |= app.answer_requests();
+        dirty |= app.poll_docker();
         if let Some(keys) = app.new_env_keys.take() {
             let _ = wake.send(Wake::EnvKeys(keys));
         }
@@ -2539,10 +2954,12 @@ mod tests {
         key(&mut app, KeyCode::Char('4'));
         assert!(screen(&mut app).contains("5173"));
         key(&mut app, KeyCode::Char('5'));
+        assert!(screen(&mut app).contains("Docker containers"));
+        key(&mut app, KeyCode::Char('6'));
         let s = screen(&mut app);
         assert!(s.contains("agents in catalog: 45"), "{s}");
         assert!(s.contains("How orphans are found") && s.contains("Procs column"));
-        key(&mut app, KeyCode::Char('6'));
+        key(&mut app, KeyCode::Char('7'));
         let s = screen(&mut app);
         assert!(s.contains("automatic cleanup is off"), "{s}");
     }
@@ -2551,7 +2968,7 @@ mod tests {
     fn paints_its_own_colors_over_the_terminal_theme() {
         let mut app = app();
         let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
-        for view in ['1', '2', '3', '4', '5', '6'] {
+        for view in ['1', '2', '3', '4', '5', '6', '7'] {
             key(&mut app, KeyCode::Char(view));
             terminal.draw(|f| app.draw(f)).unwrap();
             let buf = terminal.backend().buffer();
@@ -2632,7 +3049,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
         terminal.draw(|f| app.draw(f)).unwrap();
         let buf = terminal.backend().buffer();
-        let x = (0..buf.area.width).find(|x| buf[(*x, 0)].symbol() == "6").unwrap();
+        let x = (0..buf.area.width).find(|x| buf[(*x, 0)].symbol() == "7").unwrap();
         let click = |x| {
             Event::Mouse(crossterm::event::MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
@@ -2643,7 +3060,7 @@ mod tests {
         };
         app.on_event(click(x + 3));
         assert!(app.view == View::Settings);
-        let x = (0..buf.area.width).find(|x| buf[(*x, 0)].symbol() == "5").unwrap();
+        let x = (0..buf.area.width).find(|x| buf[(*x, 0)].symbol() == "6").unwrap();
         app.on_event(click(x));
         assert!(app.view == View::Rules);
         let s = screen(&mut app);
@@ -3113,6 +3530,76 @@ mod tests {
         assert!(app.settings().last() == Some(&Setting::Mcp(claude)));
     }
 
+    fn docker_projects() -> Docker {
+        let ps = "aaa\tweb-db-1\tpostgres:16\trunning\tUp 3 minutes\t0.0.0.0:5435->5432/tcp\tweb\tdb\tC:\\work\\acme\\web-app\n\
+            bbb\tgone-db-1\tpostgres:16\trunning\tUp 1 hour\t\tgone\tdb\tC:\\work\\acme\\deleted\n\
+            ccc\tgone-redis-1\tredis:8\texited\tExited (0) 1 hour ago\t\tgone\tredis\tC:\\work\\acme\\deleted\n";
+        Docker::Ready(containers::group(containers::parse_ps(ps), |dir| {
+            if dir.ends_with("web-app") {
+                Place::Here { checkout: dir.into() }
+            } else {
+                Place::Gone
+            }
+        }))
+    }
+
+    #[test]
+    fn containers_show_their_session_and_leftovers_are_proposed() {
+        let mut app = app();
+        app.apply_docker(DockerMsg::Read(docker_projects()));
+        // The project whose checkout is gone is pre-marked; the live one is not.
+        assert_eq!(app.docker_marked, HashSet::from(["gone".to_string()]));
+        key(&mut app, KeyCode::Char('5'));
+        let s = screen(&mut app);
+        assert!(s.contains("checkout gone"), "{s}");
+        let summary: String = app.summary().spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(summary.contains("leftover containers 1"), "{summary}");
+        assert!(
+            s.contains("acme/web-app"),
+            "the session working in the checkout owns it: {s}"
+        );
+
+        // Marked projects are cleaned up: stopped, then removed since nothing will start them.
+        key(&mut app, KeyCode::Char('x'));
+        let plan = app.confirm.take().unwrap().containers.unwrap();
+        let ids = |l: &[(String, String)]| l.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+        assert_eq!(
+            (ids(&plan.stop), ids(&plan.remove)),
+            (vec!["bbb".into()], vec!["bbb".into(), "ccc".into()])
+        );
+
+        // Unmarking sticks across reads; the live project's database is only stopped.
+        key(&mut app, KeyCode::Char(' '));
+        app.apply_docker(DockerMsg::Read(docker_projects()));
+        assert!(app.docker_marked.is_empty());
+        let web = app
+            .docked()
+            .iter()
+            .position(|d| *d == Docked::Project("web".into()))
+            .unwrap();
+        app.selected[View::Containers as usize] = web;
+        key(&mut app, KeyCode::Char('x'));
+        let plan = app.confirm.as_ref().unwrap().containers.clone().unwrap();
+        assert_eq!((ids(&plan.stop), plan.remove.len()), (vec!["aaa".into()], 0));
+        // Without a docker thread (tests, replay) confirming runs nothing.
+        key(&mut app, KeyCode::Char('y'));
+        assert!(app.confirm.is_none());
+    }
+
+    #[test]
+    fn protected_containers_are_refused() {
+        let rules = Rules {
+            protect: vec!["postgres".into()],
+            ..Rules::default()
+        };
+        let mut app = App::new(rules, Vec::new());
+        app.apply_docker(DockerMsg::Read(docker_projects()));
+        key(&mut app, KeyCode::Char('5'));
+        key(&mut app, KeyCode::Char('x'));
+        let refusals = &app.confirm.as_ref().unwrap().refusals;
+        assert_eq!(refusals, &["gone-db-1 is protected by rule 'postgres'".to_string()]);
+    }
+
     #[test]
     fn replay_reads_and_changes_nothing_on_this_machine() {
         let snapshot: Snapshot = serde_json::from_str(include_str!("../../core/tests/fixtures/sample.json")).unwrap();
@@ -3134,7 +3621,7 @@ mod tests {
         // No SSH keys or hooks of this machine.
         key(&mut app, KeyCode::Char('3'));
         assert_eq!(app.ssh_keys, SshInventory::default());
-        key(&mut app, KeyCode::Char('6'));
+        key(&mut app, KeyCode::Char('7'));
         assert!(app.hooks_registered.is_empty() && app.mcp_agents.is_empty());
         // Agents' questions are left for a dashboard that shows this machine.
         assert!(!app.answer_requests());
