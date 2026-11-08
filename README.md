@@ -173,6 +173,9 @@ agentlens --replay snap.json       # browse a saved snapshot in the dashboard, r
 agentlens locks <path>             # who holds a file or folder, by agent session
 ```
 
+One dashboard runs at a time per user: starting another brings the open one to the front (Windows)
+or says that it is already running. The other commands are not limited.
+
 When an update or delete fails with `EBUSY`, "resource busy or locked" or "being used by another
 process", `agentlens locks` lists the processes that run an executable from the path, work in it,
 or (Windows) have anything in it open. They are grouped by agent session, and leftovers are marked
