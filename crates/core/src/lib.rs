@@ -4,6 +4,7 @@ pub mod containers;
 pub mod health;
 pub mod hooks;
 pub mod install;
+pub mod instance;
 pub mod keys;
 pub mod locks;
 pub mod mcp;

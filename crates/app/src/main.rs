@@ -13,7 +13,7 @@ use agentlens_core::model::Model;
 use agentlens_core::origin::Origins;
 use agentlens_core::rules::Rules;
 use agentlens_core::stdio::StdioProbe;
-use agentlens_core::{Collector, Snapshot, containers, hooks, install, locks, net};
+use agentlens_core::{Collector, Snapshot, containers, hooks, install, instance, locks, net};
 
 const USAGE: &str = "usage: agentlens [--report [snapshot.json] | --dump-json | --replay snapshot.json | locks <path>]";
 
@@ -29,6 +29,15 @@ fn main() -> anyhow::Result<()> {
     if args.first().map(String::as_str) == Some("mcp") {
         return mcp::serve();
     }
+    // Claimed before any scanning, so a second dashboard is turned away at once.
+    let _claim = if args.is_empty() {
+        match instance::claim() {
+            Some(claim) => Some(claim),
+            None => return already_running(),
+        }
+    } else {
+        None
+    };
     let rules = Rules::load().map_err(anyhow::Error::msg)?;
     let installed = install::scan(&Catalog::builtin().with_rules(&rules));
     let catalog = Catalog::builtin().with_rules(&rules).with_installed(&installed);
@@ -81,6 +90,20 @@ fn main() -> anyhow::Result<()> {
         }
         Some(other) => anyhow::bail!("unknown argument {other}\n{USAGE}"),
     }
+}
+
+/// A second dashboard would only repeat the scans of the one already open, so that one is
+/// brought forward instead.
+fn already_running() -> anyhow::Result<()> {
+    if instance::activate_running() {
+        return Ok(());
+    }
+    println!("agentlens is already running in another window.");
+    if instance::console_closes_on_exit() {
+        println!("Press Enter to close.");
+        let _ = std::io::stdin().read_line(&mut String::new());
+    }
+    Ok(())
 }
 
 /// `agentlens hook <agent>`: records the event the agent passes on standard input.
