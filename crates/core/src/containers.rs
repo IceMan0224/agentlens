@@ -78,28 +78,132 @@ pub enum Docker {
     Missing,
     /// The command failed, usually because the engine is not running.
     Failed(String),
-    Ready(Vec<Project>),
+    Ready {
+        projects: Vec<Project>,
+        /// Absent in a saved snapshot, which cannot be used for live cleanup.
+        engine: Option<Engine>,
+    },
 }
 
-/// Reads the containers with the `docker` CLI. `local` says whether the engine runs on this
-/// machine, so its working directories can be checked here.
-pub fn read(local: bool) -> Docker {
-    match docker(&["ps", "--all", "--no-trunc", "--format", PS_FORMAT]) {
-        Ok(out) => Docker::Ready(group(parse_ps(&out), |dir| place(dir, local))),
-        Err(None) => Docker::Missing,
-        Err(Some(e)) => Docker::Failed(e),
+/// The endpoint used to read a list, retained by its cleanup plan. Local context endpoints
+/// are addressed by socket, so changing the current context cannot redirect a cleanup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Engine {
+    Context { name: String, host: String },
+    Host(String),
+}
+
+impl Engine {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Context { name, .. } => name,
+            Self::Host(host) => host,
+        }
+    }
+
+    fn host(&self) -> &str {
+        match self {
+            Self::Context { host, .. } | Self::Host(host) => host,
+        }
+    }
+
+    fn local(&self) -> bool {
+        local_endpoint(self.host())
     }
 }
 
-/// Whether the current engine runs on this machine (a named pipe or Unix socket), not on a
-/// remote host whose paths mean nothing here.
-pub fn engine_is_local() -> bool {
-    let host = match std::env::var("DOCKER_HOST") {
-        Ok(h) if !h.is_empty() => h,
-        _ => docker(&["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"]).unwrap_or_default(),
+impl Docker {
+    pub fn engine(&self) -> Option<&Engine> {
+        match self {
+            Self::Ready { engine, .. } => engine.as_ref(),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct Context {
+    name: String,
+    current: bool,
+    docker_endpoint: String,
+}
+
+fn local_endpoint(host: &str) -> bool {
+    host.starts_with("npipe://") || host.starts_with("unix://")
+}
+
+/// Prefer the selected engine, then try other local Docker-compatible endpoints regardless
+/// of vendor. An explicitly selected remote engine never falls back to a different machine.
+fn engines(contexts: &[Context], context: Option<&str>, host: Option<&str>) -> Result<Vec<Engine>, String> {
+    let context = context.filter(|c| !c.is_empty());
+    let host = host.filter(|h| !h.is_empty());
+    let selected = if let (None, Some(host)) = (context, host) {
+        Engine::Host(host.into())
+    } else {
+        let selected = contexts
+            .iter()
+            .find(|c| context.map_or(c.current, |name| c.name == name))
+            .ok_or_else(|| format!("Docker context not found: {}", context.unwrap_or("current")))?;
+        Engine::Context {
+            name: selected.name.clone(),
+            host: selected.docker_endpoint.clone(),
+        }
     };
-    let host = host.trim();
-    host.is_empty() || host.starts_with("npipe://") || host.starts_with("unix://")
+    let mut engines = vec![selected];
+    if engines[0].local() {
+        for c in contexts.iter().filter(|c| local_endpoint(&c.docker_endpoint)) {
+            if engines.iter().all(|e| e.host() != c.docker_endpoint) {
+                engines.push(Engine::Context {
+                    name: c.name.clone(),
+                    host: c.docker_endpoint.clone(),
+                });
+            }
+        }
+    }
+    Ok(engines)
+}
+
+/// Reads containers from a responsive engine without changing the user's Docker context.
+pub fn read() -> Docker {
+    let contexts = match docker(None, &["context", "ls", "--format", "{{json .}}"])
+        .and_then(|out| {
+            out.lines()
+                .map(|line| serde_json::from_str::<Context>(line).map_err(|e| Some(e.to_string())))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .and_then(|contexts| {
+            engines(
+                &contexts,
+                std::env::var("DOCKER_CONTEXT").ok().as_deref(),
+                std::env::var("DOCKER_HOST").ok().as_deref(),
+            )
+            .map_err(Some)
+        }) {
+        Ok(engines) => engines,
+        Err(None) => return Docker::Missing,
+        Err(Some(e)) => return Docker::Failed(e),
+    };
+    read_engines(contexts, |engine| {
+        docker(Some(engine), &["ps", "--all", "--no-trunc", "--format", PS_FORMAT])
+    })
+}
+
+fn read_engines(engines: Vec<Engine>, mut ps: impl FnMut(&Engine) -> Result<String, Option<String>>) -> Docker {
+    let mut errors = Vec::new();
+    for engine in engines {
+        match ps(&engine) {
+            Ok(out) => {
+                return Docker::Ready {
+                    projects: group(parse_ps(&out), |dir| place(dir, engine.local())),
+                    engine: Some(engine),
+                };
+            }
+            Err(None) => return Docker::Missing,
+            Err(Some(e)) => errors.push(format!("{}: {e}", engine.name())),
+        }
+    }
+    Docker::Failed(errors.join("; "))
 }
 
 pub fn parse_ps(text: &str) -> Vec<Container> {
@@ -238,6 +342,8 @@ pub fn short_ports(ports: &str) -> String {
 /// Volumes are never removed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ContainerPlan {
+    /// The engine that supplied the displayed containers, captured before confirmation.
+    pub engine: Option<Engine>,
     /// (id, name)
     pub stop: Vec<(String, String)>,
     pub remove: Vec<(String, String)>,
@@ -301,14 +407,23 @@ pub struct Done {
 /// Runs the plan. Container IDs are never reused, so one that changed since the plan was made
 /// can only have gone, and docker then reports it as an error.
 pub fn execute(plan: &ContainerPlan) -> Done {
+    execute_with(plan, docker_counted)
+}
+
+fn execute_with(plan: &ContainerPlan, mut docker: impl FnMut(&Engine, &[&str]) -> (usize, Option<String>)) -> Done {
     let mut done = Done::default();
+    let Some(engine) = plan.engine.as_ref() else {
+        done.errors
+            .push("No Docker engine was captured for this cleanup; refresh the containers first".into());
+        return done;
+    };
     let mut run = |verb: &str, list: &[(String, String)]| -> usize {
         if list.is_empty() {
             return 0;
         }
         let mut args = vec![verb];
         args.extend(list.iter().map(|(id, _)| id.as_str()));
-        match docker_counted(&args) {
+        match docker(engine, &args) {
             (n, None) => n,
             (n, Some(e)) => {
                 done.errors.push(e);
@@ -324,10 +439,8 @@ pub fn execute(plan: &ContainerPlan) -> Done {
 }
 
 /// Runs docker and returns stdout; `Err(None)` when there is no docker command.
-fn docker(args: &[&str]) -> Result<String, Option<String>> {
-    let out = Command::new("docker")
-        .args(args)
-        .stdin(Stdio::null())
+fn docker(engine: Option<&Engine>, args: &[&str]) -> Result<String, Option<String>> {
+    let out = docker_command(engine, args)
         .output()
         .map_err(|e| (e.kind() != std::io::ErrorKind::NotFound).then(|| e.to_string()))?;
     if out.status.success() {
@@ -341,8 +454,16 @@ fn docker(args: &[&str]) -> Result<String, Option<String>> {
 }
 
 /// Runs a docker command that prints one line per container it handled.
-fn docker_counted(args: &[&str]) -> (usize, Option<String>) {
-    match Command::new("docker").args(args).stdin(Stdio::null()).output() {
+fn docker_counted(engine: &Engine, args: &[&str]) -> (usize, Option<String>) {
+    if let Err(error) = verify_endpoint(engine, |name| {
+        docker(
+            None,
+            &["context", "inspect", name, "--format", "{{.Endpoints.docker.Host}}"],
+        )
+    }) {
+        return (0, Some(error));
+    }
+    match docker_command(Some(engine), args).output() {
         Ok(out) => {
             let n = String::from_utf8_lossy(&out.stdout)
                 .lines()
@@ -352,6 +473,49 @@ fn docker_counted(args: &[&str]) -> (usize, Option<String>) {
         }
         Err(e) => (0, Some(e.to_string())),
     }
+}
+
+/// Remote contexts carry TLS/SSH settings, so retain the context but reject endpoint edits
+/// before each destructive command. Local commands already use their captured socket.
+fn verify_endpoint(
+    engine: &Engine,
+    mut inspect: impl FnMut(&str) -> Result<String, Option<String>>,
+) -> Result<(), String> {
+    if let Engine::Context { name, host } = engine
+        && !engine.local()
+    {
+        let current = inspect(name).map_err(|e| e.unwrap_or_else(|| "docker is not installed".into()))?;
+        if current.trim() != host {
+            return Err(format!(
+                "Docker context '{name}' changed endpoints; refresh the containers before cleanup"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn docker_command(engine: Option<&Engine>, args: &[&str]) -> Command {
+    let mut command = Command::new("docker");
+    command.env_remove("DOCKER_CONTEXT").env_remove("DOCKER_HOST");
+    if let Some(engine) = engine {
+        match engine {
+            Engine::Context { name, .. } if !engine.local() => {
+                command.args(["--context", name]);
+            }
+            _ => {
+                command.args(["--host", engine.host()]);
+            }
+        }
+    }
+    // Context enumeration does not connect to a daemon, but the CLI still initializes TLS.
+    // Keep TLS environment settings only for an explicitly selected remote DOCKER_HOST.
+    if engine.is_none_or(|e| matches!(e, Engine::Context { .. }) || e.local()) {
+        for key in ["DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"] {
+            command.env_remove(key);
+        }
+    }
+    command.args(args).stdin(Stdio::null());
+    command
 }
 
 fn first_line(bytes: &[u8]) -> String {
@@ -371,6 +535,194 @@ mod tests {
         bbb\tweb-redis-1\tredis:8\texited\tExited (255) 2 hours ago\t\tweb\tredis\t/work/web\n\
         ccc\tsnapshot-db\tpostgres:16\texited\tExited (0) 2 days ago\t\t\t\t\n\
         ddd\told-db-1\tpostgres:16\trunning\tUp 1 hour\t\told\tdb\t/work/old\n";
+
+    fn contexts(current: &str) -> Vec<Context> {
+        [
+            ("default", "npipe:////./pipe/docker_engine"),
+            ("another-engine", "unix:///tmp/another-engine.sock"),
+            ("shared", "ssh://remote.example"),
+        ]
+        .into_iter()
+        .map(|(name, host)| Context {
+            name: name.into(),
+            current: name == current,
+            docker_endpoint: host.into(),
+        })
+        .collect()
+    }
+
+    #[test]
+    fn discovers_any_local_engine_when_the_selected_one_is_unavailable() {
+        for selected in ["default", "another-engine"] {
+            let candidates = engines(&contexts(selected), None, None).unwrap();
+            let mut tried = Vec::new();
+            let docker = read_engines(candidates, |engine| {
+                tried.push(engine.name().to_string());
+                if engine.name() == selected {
+                    Err(Some("engine is stopped".into()))
+                } else {
+                    Ok(PS.into())
+                }
+            });
+            let Docker::Ready { projects, engine } = docker else {
+                panic!("{docker:?}")
+            };
+            assert_eq!(tried.len(), 2);
+            assert_eq!(tried[0], selected);
+            assert_eq!(engine.unwrap().name(), tried[1]);
+            assert_eq!(projects.iter().map(|p| p.containers.len()).sum::<usize>(), 4);
+        }
+    }
+
+    #[test]
+    fn a_working_selected_engine_wins_even_when_it_has_no_containers() {
+        let mut tried = Vec::new();
+        let docker = read_engines(engines(&contexts("another-engine"), None, None).unwrap(), |engine| {
+            tried.push(engine.name().to_string());
+            Ok(String::new())
+        });
+        assert_eq!(tried, ["another-engine"]);
+        assert!(matches!(docker, Docker::Ready { projects, .. } if projects.is_empty()));
+    }
+
+    #[test]
+    fn environment_selection_has_dockers_precedence() {
+        let contexts = contexts("default");
+        let selected = engines(&contexts, Some("shared"), Some("unix:///tmp/override.sock")).unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].name(), "shared");
+        let selected = engines(&contexts, None, Some("unix:///tmp/override.sock")).unwrap();
+        assert_eq!(selected[0], Engine::Host("unix:///tmp/override.sock".into()));
+        assert_eq!(selected.len(), 3);
+        assert_eq!(engines(&contexts, Some(""), Some("")).unwrap()[0].name(), "default");
+        assert!(engines(&contexts, Some("deleted-context"), None).is_err());
+    }
+
+    #[test]
+    fn remote_engines_are_only_used_when_selected_and_never_fall_back() {
+        let contexts = contexts("shared");
+        let selected = engines(&contexts, None, None).unwrap();
+        assert_eq!(selected.len(), 1);
+        let docker = read_engines(selected.clone(), |_| Ok(PS.into()));
+        let Docker::Ready { projects, .. } = docker else {
+            panic!("{docker:?}")
+        };
+        assert!(projects.iter().all(|p| p.place == Place::Unknown));
+        let docker = read_engines(selected, |_| Err(Some("offline".into())));
+        assert_eq!(docker, Docker::Failed("shared: offline".into()));
+        let local = engines(&contexts, Some("default"), None).unwrap();
+        assert!(local.iter().all(Engine::local));
+        let remote_host = engines(&contexts, None, Some("tcp://remote.example:2376")).unwrap();
+        assert_eq!(remote_host.len(), 1);
+    }
+
+    #[test]
+    fn duplicate_local_endpoints_are_only_tried_once() {
+        let mut contexts = contexts("default");
+        contexts.push(Context {
+            name: "alias".into(),
+            current: false,
+            docker_endpoint: contexts[0].docker_endpoint.clone(),
+        });
+        assert_eq!(engines(&contexts, None, None).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn reports_all_attempted_engines_and_a_missing_cli() {
+        let candidates = engines(&contexts("default"), None, None).unwrap();
+        assert_eq!(
+            read_engines(candidates.clone(), |_| Err(Some("offline".into()))),
+            Docker::Failed("default: offline; another-engine: offline".into())
+        );
+        assert_eq!(read_engines(candidates, |_| Err(None)), Docker::Missing);
+    }
+
+    #[test]
+    fn local_commands_pin_the_endpoint_and_ignore_ambient_context_and_tls() {
+        let selected = engines(&contexts("another-engine"), None, None).unwrap();
+        let command = docker_command(Some(&selected[0]), &["ps"]);
+        assert_eq!(
+            command
+                .get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
+            ["--host", "unix:///tmp/another-engine.sock", "ps"]
+        );
+        for key in [
+            "DOCKER_CONTEXT",
+            "DOCKER_HOST",
+            "DOCKER_TLS",
+            "DOCKER_TLS_VERIFY",
+            "DOCKER_CERT_PATH",
+        ] {
+            assert!(command.get_envs().any(|(k, v)| k == key && v.is_none()), "{key}");
+        }
+        let remote = engines(&contexts("shared"), None, None).unwrap();
+        let command = docker_command(Some(&remote[0]), &["ps"]);
+        assert_eq!(
+            command
+                .get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
+            ["--context", "shared", "ps"]
+        );
+    }
+
+    #[test]
+    fn discovery_ignores_stale_tls_but_explicit_remote_hosts_keep_it() {
+        let discovery = docker_command(None, &["context", "ls"]);
+        let remote = Engine::Host("tcp://remote.example:2376".into());
+        let command = docker_command(Some(&remote), &["ps"]);
+        for key in ["DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"] {
+            assert!(discovery.get_envs().any(|(k, v)| k == key && v.is_none()));
+            assert!(!command.get_envs().any(|(k, _)| k == key));
+        }
+    }
+
+    #[test]
+    fn remote_cleanup_refuses_a_context_that_was_retargeted_or_removed() {
+        let remote = Engine::Context {
+            name: "shared".into(),
+            host: "ssh://host-a".into(),
+        };
+        assert!(
+            verify_endpoint(&remote, |name| {
+                assert_eq!(name, "shared");
+                Ok("ssh://host-a\n".into())
+            })
+            .is_ok()
+        );
+        let changed = verify_endpoint(&remote, |_| Ok("ssh://host-b\n".into())).unwrap_err();
+        assert!(changed.contains("changed endpoints"));
+        assert!(verify_endpoint(&remote, |_| Err(Some("context removed".into()))).is_err());
+        let local = Engine::Context {
+            name: "local".into(),
+            host: "unix:///first.sock".into(),
+        };
+        assert!(verify_endpoint(&local, |_| panic!("local cleanup uses the captured socket")).is_ok());
+    }
+
+    #[test]
+    fn cleanup_uses_the_captured_engine_and_never_discovers_a_replacement() {
+        let selected = engines(&contexts("another-engine"), None, None).unwrap();
+        let plan = ContainerPlan {
+            engine: Some(selected[0].clone()),
+            stop: vec![("aaa".into(), "db".into())],
+            remove: vec![("bbb".into(), "redis".into())],
+        };
+        let mut calls = Vec::new();
+        let done = execute_with(&plan, |engine, args| {
+            assert_eq!(engine, &selected[0]);
+            calls.push(args.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+            (0, Some("engine is offline".into()))
+        });
+        assert_eq!(calls, [vec!["stop", "aaa"], vec!["rm", "bbb"]]);
+        assert_eq!(done.errors.len(), 2);
+        assert_eq!((done.stopped, done.removed), (0, 0));
+        let unbound = ContainerPlan { engine: None, ..plan };
+        let done = execute_with(&unbound, |_, _| panic!("an unbound plan must not run"));
+        assert_eq!(done.errors.len(), 1);
+    }
 
     fn projects() -> Vec<Project> {
         group(parse_ps(PS), |dir| match dir {

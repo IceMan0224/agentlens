@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
         Some("--dump-json") => {
             let mut snapshot = live_snapshot(&catalog)?;
             // Saved with their judgment, so a replay elsewhere shows them as they were here.
-            if let containers::Docker::Ready(projects) = containers::read(containers::engine_is_local()) {
+            if let containers::Docker::Ready { projects, .. } = containers::read() {
                 snapshot.containers = Some(projects);
             }
             serde_json::to_writer_pretty(std::io::stdout().lock(), &snapshot)?;
