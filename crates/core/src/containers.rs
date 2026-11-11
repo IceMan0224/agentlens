@@ -3,6 +3,7 @@
 //! directory is gone the project is a leftover; when a live session works in the same checkout,
 //! that session owns it. Everything is read through the `docker` CLI, off the UI thread.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -339,7 +340,7 @@ pub fn short_ports(ports: &str) -> String {
 }
 
 /// What a confirmed cleanup does: running containers are stopped, stopped ones removed.
-/// Volumes are never removed.
+/// Deleted checkouts also discard their containers' anonymous and project-owned volumes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ContainerPlan {
     /// The engine that supplied the displayed containers, captured before confirmation.
@@ -347,11 +348,34 @@ pub struct ContainerPlan {
     /// (id, name)
     pub stop: Vec<(String, String)>,
     pub remove: Vec<(String, String)>,
+    pub volume_projects: Vec<VolumeProject>,
+    /// Failed volume deletions can be retried after their containers have gone.
+    pub volume_targets: Vec<VolumeTarget>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VolumeProject {
+    name: String,
+    working_dir: String,
+    containers: Vec<String>,
+    protection: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VolumeTarget {
+    project: VolumeProject,
+    volume: Volume,
+}
+
+impl VolumeTarget {
+    pub fn name(&self) -> &str {
+        &self.volume.name
+    }
 }
 
 impl ContainerPlan {
     pub fn is_empty(&self) -> bool {
-        self.stop.is_empty() && self.remove.is_empty()
+        self.stop.is_empty() && self.remove.is_empty() && self.volume_targets.is_empty()
     }
 }
 
@@ -361,7 +385,9 @@ impl ContainerPlan {
 pub fn plan(projects: &[&Project], only: Option<&str>) -> ContainerPlan {
     let mut plan = ContainerPlan::default();
     for p in projects {
+        let mut containers = Vec::new();
         for c in p.containers.iter().filter(|c| only.is_none_or(|id| c.id == id)) {
+            containers.push(c.id.clone());
             let entry = (c.id.clone(), c.name.clone());
             if c.running() {
                 plan.stop.push(entry.clone());
@@ -371,6 +397,29 @@ pub fn plan(projects: &[&Project], only: Option<&str>) -> ContainerPlan {
             } else {
                 plan.remove.push(entry);
             }
+        }
+        if p.compose
+            && p.leftover()
+            && !containers.is_empty()
+            && let Some(dir) = &p.working_dir
+            && p.containers.iter().all(|c| {
+                c.working_dir
+                    .as_deref()
+                    .is_some_and(|other| path_key(other) == path_key(dir))
+            })
+        {
+            plan.volume_projects.push(VolumeProject {
+                name: p.name.clone(),
+                working_dir: dir.clone(),
+                protection: p
+                    .containers
+                    .iter()
+                    .filter(|c| containers.contains(&c.id))
+                    .map(|c| format!("{} {} {}", p.name, c.name, c.image))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                containers,
+            });
         }
     }
     plan
@@ -393,6 +442,12 @@ pub fn refusals(projects: &[&Project], plan: &ContainerPlan, protect: &[String])
             }
         }
     }
+    for target in &plan.volume_targets {
+        let text = normalize(&target.project.protection);
+        if let Some(rule) = protect.iter().find(|rule| text.contains(rule.as_str())) {
+            out.push(format!("{} is protected by rule '{rule}'", target.name()));
+        }
+    }
     out
 }
 
@@ -401,41 +456,202 @@ pub fn refusals(projects: &[&Project], plan: &ContainerPlan, protect: &[String])
 pub struct Done {
     pub stopped: usize,
     pub removed: usize,
+    /// Named volumes; Docker removes anonymous volumes with their orphaned containers.
+    pub volumes_removed: usize,
+    pub retry: Option<ContainerPlan>,
     pub errors: Vec<String>,
 }
 
 /// Runs the plan. Container IDs are never reused, so one that changed since the plan was made
 /// can only have gone, and docker then reports it as an error.
 pub fn execute(plan: &ContainerPlan) -> Done {
-    execute_with(plan, docker_counted)
+    execute_with(plan, docker_output)
 }
 
-fn execute_with(plan: &ContainerPlan, mut docker: impl FnMut(&Engine, &[&str]) -> (usize, Option<String>)) -> Done {
+fn execute_with(plan: &ContainerPlan, mut docker: impl FnMut(&Engine, &[&str]) -> (String, Option<String>)) -> Done {
     let mut done = Done::default();
     let Some(engine) = plan.engine.as_ref() else {
         done.errors
             .push("No Docker engine was captured for this cleanup; refresh the containers first".into());
         return done;
     };
-    let mut run = |verb: &str, list: &[(String, String)]| -> usize {
-        if list.is_empty() {
-            return 0;
-        }
-        let mut args = vec![verb];
-        args.extend(list.iter().map(|(id, _)| id.as_str()));
-        match docker(engine, &args) {
-            (n, None) => n,
-            (n, Some(e)) => {
-                done.errors.push(e);
-                n
-            }
+    // Inspect before removing containers: otherwise their mount names are lost on failure.
+    let mut volumes = match project_volumes(engine, &plan.volume_projects, &mut docker) {
+        Ok(volumes) => volumes,
+        Err(error) => {
+            done.errors.push(error);
+            return done;
         }
     };
-    let stopped = run("stop", &plan.stop);
-    let removed = run("rm", &plan.remove);
-    done.stopped = stopped;
-    done.removed = removed;
+    volumes.extend(plan.volume_targets.iter().cloned());
+    let mut stop = vec!["stop"];
+    stop.extend(plan.stop.iter().map(|(id, _)| id.as_str()));
+    done.stopped = run_counted(engine, &stop, &mut docker, &mut done.errors);
+    let mut remove = vec!["rm"];
+    remove.extend(plan.remove.iter().filter_map(|(id, _)| {
+        (!plan.volume_projects.iter().any(|p| p.containers.contains(id))).then_some(id.as_str())
+    }));
+    done.removed = run_counted(engine, &remove, &mut docker, &mut done.errors);
+    for project in &plan.volume_projects {
+        if let Err(error) = still_gone(engine, project) {
+            done.errors.push(error);
+            continue;
+        }
+        let mut remove = vec!["rm", "--volumes"];
+        remove.extend(project.containers.iter().map(String::as_str));
+        done.removed += run_counted(engine, &remove, &mut docker, &mut done.errors);
+    }
+    let mut pending = Vec::new();
+    for target in volumes {
+        let volume = &target.volume;
+        let result = (|| {
+            still_gone(engine, &target.project)?;
+            let names = query(
+                engine,
+                &["volume", "ls", "--quiet", "--filter", &format!("name={}", volume.name)],
+                &mut docker,
+            )?;
+            if !names.lines().any(|name| name.trim() == volume.name) {
+                return Ok(());
+            }
+            let current = inspect_volume(engine, &volume.name, &mut docker)?;
+            if current != *volume {
+                return Err(format!("Volume '{}' changed; refresh before cleanup", volume.name));
+            }
+            let users = query(
+                engine,
+                &["ps", "--all", "--quiet", "--filter", &format!("volume={}", volume.name)],
+                &mut docker,
+            )?;
+            if users.trim().is_empty() {
+                // No force: Docker also refuses a volume attached after the reference check.
+                let out = query(engine, &["volume", "rm", &volume.name], &mut docker)?;
+                done.volumes_removed += out.lines().filter(|line| !line.trim().is_empty()).count();
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            done.errors.push(error);
+            pending.push(target);
+        }
+    }
+    if !pending.is_empty() {
+        done.retry = Some(ContainerPlan {
+            engine: Some(engine.clone()),
+            volume_targets: pending,
+            ..ContainerPlan::default()
+        });
+    }
     done
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct Mount {
+    #[serde(rename = "Type")]
+    kind: String,
+    name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+struct Volume {
+    name: String,
+    created_at: Option<String>,
+    labels: Option<HashMap<String, String>>,
+}
+
+fn still_gone(engine: &Engine, project: &VolumeProject) -> Result<(), String> {
+    if place(&project.working_dir, engine.local()) != Place::Gone {
+        return Err(format!(
+            "Checkout for '{}' is no longer confirmed gone; refresh before cleanup",
+            project.name
+        ));
+    }
+    Ok(())
+}
+
+fn inspect_volume(
+    engine: &Engine,
+    name: &str,
+    docker: &mut impl FnMut(&Engine, &[&str]) -> (String, Option<String>),
+) -> Result<Volume, String> {
+    let out = query(engine, &["volume", "inspect", "--format", "{{json .}}", name], docker)?;
+    serde_json::from_str(&out).map_err(|error| format!("Cannot inspect volume '{name}': {error}"))
+}
+
+fn project_volumes(
+    engine: &Engine,
+    projects: &[VolumeProject],
+    docker: &mut impl FnMut(&Engine, &[&str]) -> (String, Option<String>),
+) -> Result<Vec<VolumeTarget>, String> {
+    let mut volumes: Vec<VolumeTarget> = Vec::new();
+    for project in projects {
+        still_gone(engine, project)?;
+        for id in &project.containers {
+            let out = query(
+                engine,
+                &["container", "inspect", "--format", "{{json .Mounts}}", id],
+                docker,
+            )?;
+            let mounts: Vec<Mount> =
+                serde_json::from_str(&out).map_err(|error| format!("Cannot inspect mounts of '{id}': {error}"))?;
+            for mount in mounts.into_iter().filter(|m| m.kind == "volume") {
+                let Some(name) = mount.name else { continue };
+                if volumes.iter().any(|target| target.volume.name == name) {
+                    continue;
+                }
+                let volume = inspect_volume(engine, &name, docker)?;
+                if volume.name == name
+                    && volume.created_at.is_some()
+                    && volume.labels.as_ref().is_some_and(|labels| {
+                        labels.get("com.docker.compose.project") == Some(&project.name)
+                            && labels
+                                .get("com.docker.compose.volume")
+                                .is_some_and(|name| !name.is_empty())
+                    })
+                {
+                    volumes.push(VolumeTarget {
+                        project: project.clone(),
+                        volume,
+                    });
+                }
+            }
+        }
+    }
+    Ok(volumes)
+}
+
+fn query(
+    engine: &Engine,
+    args: &[&str],
+    docker: &mut impl FnMut(&Engine, &[&str]) -> (String, Option<String>),
+) -> Result<String, String> {
+    match docker(engine, args) {
+        (_, Some(error)) => Err(error),
+        (out, None) => Ok(out),
+    }
+}
+
+fn run_counted(
+    engine: &Engine,
+    args: &[&str],
+    docker: &mut impl FnMut(&Engine, &[&str]) -> (String, Option<String>),
+    errors: &mut Vec<String>,
+) -> usize {
+    let prefix = if args.starts_with(&["volume", "rm"]) || args.starts_with(&["rm", "--volumes"]) {
+        2
+    } else {
+        1
+    };
+    if args.len() <= prefix {
+        return 0;
+    }
+    let (out, error) = docker(engine, args);
+    if let Some(error) = error {
+        errors.push(error);
+    }
+    out.lines().filter(|line| !line.trim().is_empty()).count()
 }
 
 /// Runs docker and returns stdout; `Err(None)` when there is no docker command.
@@ -453,25 +669,22 @@ fn docker(engine: Option<&Engine>, args: &[&str]) -> Result<String, Option<Strin
     }
 }
 
-/// Runs a docker command that prints one line per container it handled.
-fn docker_counted(engine: &Engine, args: &[&str]) -> (usize, Option<String>) {
+/// Uses the captured endpoint for inspection and destructive commands alike.
+fn docker_output(engine: &Engine, args: &[&str]) -> (String, Option<String>) {
     if let Err(error) = verify_endpoint(engine, |name| {
         docker(
             None,
             &["context", "inspect", name, "--format", "{{.Endpoints.docker.Host}}"],
         )
     }) {
-        return (0, Some(error));
+        return (String::new(), Some(error));
     }
     match docker_command(Some(engine), args).output() {
-        Ok(out) => {
-            let n = String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .count();
-            (n, (!out.status.success()).then(|| first_line(&out.stderr)))
-        }
-        Err(e) => (0, Some(e.to_string())),
+        Ok(out) => (
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            (!out.status.success()).then(|| first_line(&out.stderr)),
+        ),
+        Err(e) => (String::new(), Some(e.to_string())),
     }
 }
 
@@ -709,12 +922,13 @@ mod tests {
             engine: Some(selected[0].clone()),
             stop: vec![("aaa".into(), "db".into())],
             remove: vec![("bbb".into(), "redis".into())],
+            ..ContainerPlan::default()
         };
         let mut calls = Vec::new();
         let done = execute_with(&plan, |engine, args| {
             assert_eq!(engine, &selected[0]);
             calls.push(args.iter().map(|s| s.to_string()).collect::<Vec<_>>());
-            (0, Some("engine is offline".into()))
+            (String::new(), Some("engine is offline".into()))
         });
         assert_eq!(calls, [vec!["stop", "aaa"], vec!["rm", "bbb"]]);
         assert_eq!(done.errors.len(), 2);
@@ -757,6 +971,182 @@ mod tests {
         let one = super::plan(&all, Some("aaa"));
         assert_eq!(ids(&one.stop), ["aaa"]);
         assert!(one.remove.is_empty());
+    }
+
+    #[test]
+    fn leftover_cleanup_discards_database_volumes() {
+        let plan = orphan_plan();
+        let mut calls = Vec::new();
+        let done = execute_with(&plan, |_, args| {
+            calls.push(args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>());
+            cleanup_reply(args)
+        });
+        assert_eq!((done.stopped, done.removed, done.volumes_removed), (1, 1, 1));
+        assert!(done.errors.is_empty(), "{:?}", done.errors);
+        assert!(calls.contains(&vec!["rm".into(), "--volumes".into(), "ddd".into()]));
+        let deleted: Vec<_> = calls
+            .iter()
+            .filter(|args| args.starts_with(&["volume".into(), "rm".into()]))
+            .collect();
+        assert_eq!(deleted.len(), 1);
+        assert_eq!(deleted[0], &["volume", "rm", "old_pgdata"]);
+    }
+
+    fn orphan_plan() -> ContainerPlan {
+        let mut old = projects().into_iter().find(|p| p.name == "old").unwrap();
+        let dir = std::env::temp_dir().join(format!("agentlens-gone-checkout-{}", std::process::id()));
+        old.working_dir = Some(dir.display().to_string());
+        old.containers[0].working_dir = old.working_dir.clone();
+        let mut plan = plan(&[&old], None);
+        plan.engine = Some(Engine::Host("unix:///tmp/docker.sock".into()));
+        plan
+    }
+
+    fn cleanup_reply(args: &[&str]) -> (String, Option<String>) {
+        let out = match args {
+            ["container", "inspect", "--format", "{{json .Mounts}}", "ddd"] => serde_json::json!([
+                {"Type":"volume", "Name":"old_pgdata"},
+                {"Type":"volume", "Name":"shared_pgdata"},
+                {"Type":"volume", "Name":"external_pgdata"},
+                {"Type":"volume", "Name":"anonymous"},
+                {"Type":"bind", "Source":"/some/files"},
+                {"Type":"tmpfs"}
+            ])
+            .to_string(),
+            ["volume", "inspect", "--format", "{{json .}}", name] => {
+                let labels = match *name {
+                    "old_pgdata" | "shared_pgdata" => serde_json::json!({
+                        "com.docker.compose.project":"old", "com.docker.compose.volume":"pgdata"
+                    }),
+                    "external_pgdata" => serde_json::json!({
+                        "com.docker.compose.project":"other", "com.docker.compose.volume":"pgdata"
+                    }),
+                    "anonymous" => serde_json::json!({"com.docker.volume.anonymous":""}),
+                    _ => panic!("unexpected volume: {name}"),
+                };
+                serde_json::json!({"Name":name, "CreatedAt":"2026-11-11T12:00:00Z", "Labels":labels}).to_string()
+            }
+            ["ps", "--all", "--quiet", "--filter", "volume=shared_pgdata"] => "another-container\n".into(),
+            ["ps", "--all", "--quiet", "--filter", "volume=old_pgdata"] => String::new(),
+            ["volume", "ls", "--quiet", "--filter", name] => name.strip_prefix("name=").unwrap().into(),
+            ["stop", ids @ ..] | ["rm", "--volumes", ids @ ..] | ["volume", "rm", ids @ ..] => ids.join("\n"),
+            _ => panic!("unexpected command: {args:?}"),
+        };
+        (out, None)
+    }
+
+    #[test]
+    fn volume_inspection_failure_preserves_containers_for_retry() {
+        let mut mutations = Vec::new();
+        let done = execute_with(&orphan_plan(), |_, args| {
+            if args.starts_with(&["volume", "inspect"]) {
+                return (String::new(), Some("volume inspection failed".into()));
+            }
+            if args[0] != "container" {
+                mutations.push(args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>());
+            }
+            cleanup_reply(args)
+        });
+        assert!(mutations.is_empty());
+        assert_eq!(done.errors, ["volume inspection failed"]);
+    }
+
+    #[test]
+    fn failed_volume_deletion_can_be_retried_without_its_container() {
+        let done = execute_with(&orphan_plan(), |_, args| {
+            if args == ["volume", "rm", "old_pgdata"] {
+                return (String::new(), Some("temporary volume deletion failure".into()));
+            }
+            cleanup_reply(args)
+        });
+        assert_eq!(done.removed, 1);
+        let retry = done.retry.unwrap();
+        assert!(!retry.is_empty());
+        assert_eq!(retry.volume_targets[0].name(), "old_pgdata");
+        assert_eq!(
+            refusals(&[], &retry, &["postgres".into()]),
+            ["old_pgdata is protected by rule 'postgres'"]
+        );
+        let retried = execute_with(&retry, |_, args| {
+            assert!(!matches!(args[0], "container" | "stop" | "rm"));
+            cleanup_reply(args)
+        });
+        assert!(retried.errors.is_empty(), "{:?}", retried.errors);
+        assert_eq!((retried.removed, retried.volumes_removed), (0, 1));
+        assert!(retried.retry.is_none());
+        let already_gone = execute_with(&retry, |_, args| {
+            assert_eq!(args[0..2], ["volume", "ls"]);
+            (String::new(), None)
+        });
+        assert!(already_gone.errors.is_empty());
+        assert!(already_gone.retry.is_none());
+    }
+
+    #[test]
+    fn a_failed_container_removal_keeps_its_volume() {
+        let mut deleted = false;
+        let done = execute_with(&orphan_plan(), |_, args| {
+            if args.starts_with(&["rm"]) {
+                return (String::new(), Some("container is still running".into()));
+            }
+            if args == ["ps", "--all", "--quiet", "--filter", "volume=old_pgdata"] {
+                return ("ddd\n".into(), None);
+            }
+            deleted |= args.starts_with(&["volume", "rm"]);
+            cleanup_reply(args)
+        });
+        assert!(!deleted);
+        assert_eq!((done.removed, done.volumes_removed), (0, 0));
+        assert_eq!(done.errors, ["container is still running"]);
+    }
+
+    #[test]
+    fn a_recreated_volume_is_not_deleted() {
+        let mut inspected = false;
+        let mut deleted = false;
+        let done = execute_with(&orphan_plan(), |_, args| {
+            let (out, error) = cleanup_reply(args);
+            if args == ["volume", "inspect", "--format", "{{json .}}", "old_pgdata"] {
+                if inspected {
+                    return (out.replace("12:00:00Z", "12:00:01Z"), error);
+                }
+                inspected = true;
+            }
+            deleted |= args.starts_with(&["volume", "rm"]);
+            (out, error)
+        });
+        assert!(!deleted);
+        assert_eq!(done.volumes_removed, 0);
+        assert_eq!(done.errors.len(), 1);
+        assert!(done.errors[0].contains("changed"));
+    }
+
+    #[test]
+    fn a_restored_checkout_prevents_volume_cleanup() {
+        let mut plan = orphan_plan();
+        plan.volume_projects[0].working_dir = std::env::temp_dir().display().to_string();
+        let done = execute_with(&plan, |_, _| panic!("a restored checkout must not be touched"));
+        assert_eq!(done.errors.len(), 1);
+        assert!(done.errors[0].contains("no longer confirmed gone"));
+        plan.engine = Some(Engine::Host("ssh://remote.example".into()));
+        let done = execute_with(&plan, |_, _| panic!("an unverifiable checkout must not be touched"));
+        assert_eq!(done.errors.len(), 1);
+    }
+
+    #[test]
+    fn live_unknown_and_conflicting_checkouts_keep_their_volumes() {
+        let mut projects = projects();
+        let all: Vec<_> = projects.iter().collect();
+        let selected = plan(&all, Some("aaa"));
+        assert!(selected.volume_projects.is_empty());
+        let selected = plan(&all, Some("ccc"));
+        assert!(selected.volume_projects.is_empty());
+        let old = projects.iter_mut().find(|p| p.name == "old").unwrap();
+        let mut other = old.containers[0].clone();
+        other.id = "eee".into();
+        other.working_dir = Some("/different/checkout".into());
+        old.containers.push(other);
+        assert!(plan(&[old], None).volume_projects.is_empty());
     }
 
     #[test]

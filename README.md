@@ -48,7 +48,10 @@ behind from evidence rather than names, and ends them only when it is safe to.
   evidence, for example `owner-gone, from session Claude Code @ Orca / acme/web-app, agent-infra`.
 - **Cleans up Docker containers too.** It groups containers by compose project and shows the
   checkout each was started from and the session working there. It proposes projects whose checkout
-  is gone, stops running containers and removes stopped ones, and keeps volumes and images.
+  is gone, stops running containers and removes stopped ones. Deleted checkouts also discard
+  their attached anonymous volumes and unused project-owned volumes, including databases;
+  already detached volumes, other volumes and images stay.
+  Failed volume deletions can be retried with `r` while the dashboard remains open.
   It prefers the selected Docker endpoint and, if that local engine is unavailable, tries other
   local Docker contexts, regardless of the engine vendor. The view shows the engine in use;
   confirmed cleanup stays on that engine. A selected remote engine never falls back locally.
@@ -199,7 +202,7 @@ with their evidence:
 | 2 Cleanup | Cleanup candidates and the evidence for each, under the host tab or session they came from (yellow = proposed) | `space` mark, `x` end marked |
 | 3 Network | SSH connections, keys, known hosts | `d` disconnect |
 | 4 Ports | Listening ports of sessions and leftovers, under the host tab they came from | `k` end the owner, `a` all ports |
-| 5 Containers | Docker containers by compose project, with the checkout each was started from and the live session working there; projects whose checkout is gone are proposed (yellow) | `space` mark a project, `x` stop running and remove stopped containers (volumes kept) |
+| 5 Containers | Docker containers by compose project, with the checkout each was started from and the live session working there; projects whose checkout is gone are proposed (yellow) | `space` mark a project, `x` stop running and remove stopped containers; deleted checkouts also discard anonymous and unused project-owned volumes (DB data included) |
 | 6 Rules | How leftovers are found, the agents and hosts on this PC in yellow (commands on `PATH`, app launchers: Start Menu, `.desktop`, `.app`, and whatever is running) and the rest of the catalog, rules file | `e` edit, `r` reload |
 | 7 Settings | Language, automatic cleanup, idle threshold, leftovers to keep, agent hooks, agent MCP | `←/→`/`enter` change |
 
