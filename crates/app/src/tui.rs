@@ -218,6 +218,7 @@ pub struct App {
     /// The docker thread, absent in a replay and in tests.
     docker_tx: Option<mpsc::Sender<DockerCmd>>,
     docker_rx: Option<mpsc::Receiver<DockerMsg>>,
+    pending_volume_cleanups: Vec<ContainerPlan>,
     confirm: Option<Confirm>,
     detail: bool,
     /// Outcome of the last key press, shown instead of the key hints until the next one.
@@ -277,6 +278,7 @@ impl App {
             docker_proposed: HashSet::new(),
             docker_tx: None,
             docker_rx: None,
+            pending_volume_cleanups: Vec::new(),
             confirm: None,
             detail: false,
             status: String::new(),
@@ -1124,6 +1126,11 @@ impl App {
                 "k/x/del 주인 종료 · a 에이전트 관련만",
             ),
             View::Ports => t(lang, "k/x/del end owner · a all", "k/x/del 주인 종료 · a 전체 보기"),
+            View::Containers if !self.pending_volume_cleanups.is_empty() => t(
+                lang,
+                "r retry failed volume cleanup · space mark · x/del clean up",
+                "r 실패한 볼륨 정리 재시도 · space 표시 · x/del 정리",
+            ),
             View::Containers => t(
                 lang,
                 "space mark project · x/del stop running, remove stopped",
@@ -1584,8 +1591,9 @@ impl App {
                  cleanup. Paths this PC cannot check (WSL paths on Windows, a remote engine) are never \
                  judged gone. Containers started without compose have no directory and are only shown.",
                 "Cleanup stops running containers and removes stopped ones; a proposed project's are also \
-                 removed once stopped. Volumes and images are kept, protect rules cover container, image \
-                 and project names, and automatic cleanup never touches containers.",
+                 removed once stopped, along with anonymous and unused project-owned volumes (including \
+                 databases). Other volumes and images are kept. Protect rules cover container, image and \
+                 project names, and automatic cleanup never touches containers.",
             ],
             Language::Ko => [
                 "컨테이너는 세션의 프로세스가 아니라 docker 엔진 안에서 돕니다. compose 프로젝트는 컨테이너에 \
@@ -1595,8 +1603,9 @@ impl App {
                  본 WSL 경로, 원격 엔진)는 사라졌다고 판단하지 않습니다. compose 없이 띄운 컨테이너는 폴더 정보가 \
                  없어 보여 주기만 합니다.",
                 "정리는 실행 중인 컨테이너를 정지하고 정지된 컨테이너를 삭제합니다. 기본 제안된 프로젝트는 정지 \
-                 후 바로 삭제합니다. 볼륨과 이미지는 남기고, 보호 규칙은 컨테이너·이미지·프로젝트 이름에도 \
-                 적용되며, 자동 정리는 컨테이너를 건드리지 않습니다.",
+                 후 바로 삭제하며, 익명 볼륨과 다른 컨테이너가 쓰지 않는 프로젝트 소유 볼륨(DB 포함)도 삭제합니다. \
+                 나머지 볼륨과 이미지는 남깁니다. 보호 규칙은 컨테이너·이미지·프로젝트 이름에도 적용되며, \
+                 자동 정리는 컨테이너를 건드리지 않습니다.",
             ],
         };
         lines.extend([
@@ -1777,22 +1786,45 @@ impl App {
         frame.render_widget(Block::new().style(BASE), area);
         let mut lines = vec![Line::from(c.title.clone()).bold(), Line::from("")];
         if let Some(plan) = &c.containers {
-            let stop = plan.stop.iter().map(|(_, n)| (t(lang, "stop  ", "정지"), n));
-            let remove = plan.remove.iter().map(|(_, n)| (t(lang, "remove", "삭제"), n));
-            let all: Vec<_> = stop.chain(remove).collect();
-            for (verb, name) in all.iter().take(10) {
+            let discards_volumes = !plan.volume_projects.is_empty() || !plan.volume_targets.is_empty();
+            if discards_volumes {
+                lines.push(
+                    Line::from(t(
+                        lang,
+                        "Deletes orphan project volumes, including DB data.",
+                        "고아 프로젝트의 볼륨(DB 데이터 포함)도 삭제합니다.",
+                    ))
+                    .fg(YELLOW),
+                );
+                lines.push(Line::from(t(
+                    lang,
+                    "Shared and unowned named volumes are kept.",
+                    "공유 볼륨과 프로젝트 소유가 아닌 이름 있는 볼륨은 보존합니다.",
+                )));
+            }
+            let stop = plan.stop.iter().map(|(_, n)| (t(lang, "stop  ", "정지"), n.as_str()));
+            let remove = plan.remove.iter().map(|(_, n)| (t(lang, "remove", "삭제"), n.as_str()));
+            let volumes = plan
+                .volume_targets
+                .iter()
+                .map(|target| (t(lang, "volume", "볼륨"), target.name()));
+            let all: Vec<_> = stop.chain(remove).chain(volumes).collect();
+            let limit = if discards_volumes { 6 } else { 10 };
+            for (verb, name) in all.iter().take(limit) {
                 lines.push(Line::from(format!("  {verb} {name}")));
             }
-            if all.len() > 10 {
-                let more = all.len() - 10;
+            if all.len() > limit {
+                let more = all.len() - limit;
                 lines.push(Line::from(tf!(lang, "  … and {more} more", "  … 외 {more}개")));
             }
             lines.push(Line::from(""));
-            lines.push(Line::from(t(
-                lang,
-                "volumes and images are kept",
-                "볼륨과 이미지는 남겨 둡니다",
-            )));
+            if !discards_volumes {
+                lines.push(Line::from(t(
+                    lang,
+                    "volumes and images are kept",
+                    "볼륨과 이미지는 남겨 둡니다",
+                )));
+            }
         }
         for t in c.plan.targets.iter().take(10) {
             lines.push(Line::from(format!("  {} {}", t.name, t.pid)));
@@ -1985,6 +2017,21 @@ impl App {
             KeyCode::Char('k') | KeyCode::Char('x') | KeyCode::Delete if self.view == View::Containers => {
                 self.ask_containers()
             }
+            KeyCode::Char('r') if self.view == View::Containers => {
+                if let Some(plan) = self.pending_volume_cleanups.first() {
+                    self.confirm = Some(Confirm {
+                        title: t(
+                            self.lang(),
+                            "Retry failed volume cleanup?",
+                            "실패한 볼륨 정리를 재시도할까요?",
+                        )
+                        .into(),
+                        plan: KillPlan::default(),
+                        containers: Some(plan.clone()),
+                        refusals: containers::refusals(&[], plan, &self.catalog.protect),
+                    });
+                }
+            }
             KeyCode::Left if self.view == View::Settings => self.change_setting(-1),
             KeyCode::Right | KeyCode::Enter | KeyCode::Char(' ') if self.view == View::Settings => {
                 self.change_setting(1)
@@ -2163,7 +2210,7 @@ impl App {
     }
 
     /// Cleans up the marked projects, or else the selected project or container: running
-    /// containers are stopped, stopped ones removed, volumes kept.
+    /// containers are stopped, stopped ones removed; deleted checkouts also discard volumes.
     fn ask_containers(&mut self) {
         let lang = self.lang();
         let docked = self.docked();
@@ -2216,7 +2263,9 @@ impl App {
         }
         if let Some(plan) = c.containers {
             if let Some(tx) = &self.docker_tx {
-                let _ = tx.send(DockerCmd::Run(plan));
+                if tx.send(DockerCmd::Run(plan.clone())).is_ok() {
+                    self.pending_volume_cleanups.retain(|pending| pending != &plan);
+                }
                 self.status = t(
                     self.lang(),
                     "stopping and removing containers…",
@@ -2277,10 +2326,25 @@ impl App {
                     "containers: {stopped} stopped, {removed} removed",
                     "컨테이너 {stopped}개 정지, {removed}개 삭제"
                 );
+                if done.volumes_removed > 0 {
+                    let volumes = done.volumes_removed;
+                    self.status.push_str(&tf!(
+                        lang,
+                        " · {volumes} named volume(s) removed",
+                        " · 이름 있는 볼륨 {volumes}개 삭제"
+                    ));
+                }
                 if !done.errors.is_empty() {
                     let errors = done.errors.join("; ");
                     self.status
                         .push_str(&tf!(lang, " · failed: {errors}", " · 실패: {errors}"));
+                }
+                if let Some(retry) = done.retry {
+                    if !self.pending_volume_cleanups.contains(&retry) {
+                        self.pending_volume_cleanups.push(retry);
+                    }
+                    self.status
+                        .push_str(t(lang, " · r: retry volume cleanup", " · r: 볼륨 정리 재시도"));
                 }
             }
         }
@@ -3685,7 +3749,10 @@ mod tests {
 
         // Marked projects are cleaned up: stopped, then removed since nothing will start them.
         key(&mut app, KeyCode::Char('x'));
+        let confirmation = screen(&mut app);
+        assert!(confirmation.contains("including DB data"), "{confirmation}");
         let plan = app.confirm.take().unwrap().containers.unwrap();
+        assert_eq!(plan.volume_projects.len(), 1);
         let ids = |l: &[(String, String)]| l.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
         assert_eq!(
             (ids(&plan.stop), ids(&plan.remove)),
@@ -3705,6 +3772,7 @@ mod tests {
         key(&mut app, KeyCode::Char('x'));
         let plan = app.confirm.as_ref().unwrap().containers.clone().unwrap();
         assert_eq!((ids(&plan.stop), plan.remove.len()), (vec!["aaa".into()], 0));
+        assert!(plan.volume_projects.is_empty());
         // Without a docker thread (tests, replay) confirming runs nothing.
         key(&mut app, KeyCode::Char('y'));
         assert!(app.confirm.is_none());
@@ -3722,6 +3790,39 @@ mod tests {
         key(&mut app, KeyCode::Char('x'));
         let refusals = &app.confirm.as_ref().unwrap().refusals;
         assert_eq!(refusals, &["gone-db-1 is protected by rule 'postgres'".to_string()]);
+    }
+
+    #[test]
+    fn failed_volume_cleanup_survives_refresh_and_can_be_retried() {
+        let mut app = app();
+        let (tx, rx) = mpsc::channel();
+        app.docker_tx = Some(tx);
+        let Docker::Ready { projects, .. } = docker_projects() else {
+            unreachable!()
+        };
+        let gone = projects.iter().find(|p| p.name == "gone").unwrap();
+        let retry = containers::plan(&[gone], None);
+        app.apply_docker(DockerMsg::Done(containers::Done {
+            retry: Some(retry.clone()),
+            errors: vec!["temporary volume failure".into()],
+            ..containers::Done::default()
+        }));
+        app.apply_docker(DockerMsg::Read(Docker::Ready {
+            projects: Vec::new(),
+            engine: None,
+        }));
+        key(&mut app, KeyCode::Char('5'));
+        key(&mut app, KeyCode::Char('r'));
+        assert_eq!(app.confirm.as_ref().unwrap().containers.as_ref(), Some(&retry));
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(app.pending_volume_cleanups.len(), 1);
+        key(&mut app, KeyCode::Char('r'));
+        key(&mut app, KeyCode::Char('y'));
+        assert!(app.pending_volume_cleanups.is_empty());
+        assert!(
+            rx.try_iter()
+                .any(|message| matches!(message, DockerCmd::Run(plan) if plan == retry))
+        );
     }
 
     #[test]
