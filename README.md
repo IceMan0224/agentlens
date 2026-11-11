@@ -49,6 +49,9 @@ behind from evidence rather than names, and ends them only when it is safe to.
 - **Cleans up Docker containers too.** It groups containers by compose project and shows the
   checkout each was started from and the session working there. It proposes projects whose checkout
   is gone, stops running containers and removes stopped ones, and keeps volumes and images.
+  It prefers the selected Docker endpoint and, if that local engine is unavailable, tries other
+  local Docker contexts, regardless of the engine vendor. The view shows the engine in use;
+  confirmed cleanup stays on that engine. A selected remote engine never falls back locally.
 - **Safe by design.**
   - It never ends hosts, system processes, its own terminal, or anything you `protect`.
   - It ends parents before children and re-checks each PID's start time right before ending it.

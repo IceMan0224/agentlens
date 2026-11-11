@@ -318,7 +318,7 @@ impl App {
     pub fn apply(&mut self, mut snapshot: Snapshot) {
         // A replay shows the containers saved with it; the dashboard reads them live instead.
         if let Some(projects) = snapshot.containers.take().filter(|_| self.replay) {
-            self.apply_docker(DockerMsg::Read(Docker::Ready(projects)));
+            self.apply_docker(DockerMsg::Read(Docker::Ready { projects, engine: None }));
         }
         let mut model = Model::build(snapshot, &self.catalog);
         self.history.update(&model);
@@ -734,7 +734,7 @@ impl App {
 
     fn projects(&self) -> &[Project] {
         match &self.docker {
-            Docker::Ready(projects) => projects,
+            Docker::Ready { projects, .. } => projects,
             _ => &[],
         }
     }
@@ -1351,6 +1351,10 @@ impl App {
         self.selected[v] = self.selected[v].min(self.row_count().saturating_sub(1));
         let selected_row = self.row_map.iter().position(|r| *r == Some(self.selected[v]));
         let empty = rows.is_empty();
+        let title = match (self.view, self.docker.engine()) {
+            (View::Containers, Some(engine)) => format!("{title} · {}", engine.name()),
+            _ => title.to_string(),
+        };
         let table = Table::new(rows, widths)
             .header(Row::new(header).style(Style::new().add_modifier(Modifier::UNDERLINED)))
             .row_highlight_style(Style::new().reversed())
@@ -1375,7 +1379,7 @@ impl App {
                         Docker::Pending => t(lang, "reading docker…", "docker 읽는 중…").into(),
                         Docker::Missing => t(lang, "docker is not installed", "docker가 설치되어 있지 않음").into(),
                         Docker::Failed(e) => tf!(lang, "docker did not answer: {e}", "docker 응답 없음: {e}"),
-                        Docker::Ready(_) => t(lang, "no containers", "컨테이너 없음").into(),
+                        Docker::Ready { .. } => t(lang, "no containers", "컨테이너 없음").into(),
                     };
                     docker_msg.as_str()
                 }
@@ -2180,14 +2184,18 @@ impl App {
                 None => (Vec::new(), None),
             }
         };
-        let plan = containers::plan(&projects, only);
+        let mut plan = containers::plan(&projects, only);
+        plan.engine = self.docker.engine().cloned();
         if plan.is_empty() {
             self.status = t(lang, "nothing selected", "선택된 항목 없음").into();
             return;
         }
         let refusals = containers::refusals(&projects, &plan, &self.catalog.protect);
         let names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
-        let (names, stop, remove) = (names.join(", "), plan.stop.len(), plan.remove.len());
+        let (mut names, stop, remove) = (names.join(", "), plan.stop.len(), plan.remove.len());
+        if let Some(engine) = &plan.engine {
+            names.push_str(&format!(" @ {}", engine.name()));
+        }
         let title = tf!(
             lang,
             "Clean up {names}: stop {stop}, remove {remove} container(s)?",
@@ -2239,6 +2247,10 @@ impl App {
         let lang = self.lang();
         match msg {
             DockerMsg::Read(docker) => {
+                if self.docker.engine() != docker.engine() {
+                    self.docker_marked.clear();
+                    self.docker_proposed.clear();
+                }
                 // Keep the cursor on the same row as projects come and go.
                 let v = View::Containers as usize;
                 let was = self.docked().get(self.selected[v]).cloned();
@@ -2246,7 +2258,9 @@ impl App {
                 if let Some(i) = was.and_then(|w| self.docked().iter().position(|d| *d == w)) {
                     self.selected[v] = i;
                 }
-                let Docker::Ready(projects) = &self.docker else { return };
+                let Docker::Ready { projects, .. } = &self.docker else {
+                    return;
+                };
                 for p in projects {
                     if p.leftover() && self.docker_proposed.insert(p.name.clone()) {
                         self.docker_marked.insert(p.name.clone());
@@ -2862,10 +2876,9 @@ fn spawn_docker() -> (mpsc::Sender<DockerCmd>, mpsc::Receiver<DockerMsg>) {
     let (cmd_tx, cmd_rx) = mpsc::channel::<DockerCmd>();
     let (msg_tx, msg_rx) = mpsc::channel::<DockerMsg>();
     std::thread::spawn(move || {
-        let local = containers::engine_is_local();
         let mut fast = false;
         loop {
-            if msg_tx.send(DockerMsg::Read(containers::read(local))).is_err() {
+            if msg_tx.send(DockerMsg::Read(containers::read())).is_err() {
                 return;
             }
             match cmd_rx.recv_timeout(if fast { DOCKER_FAST } else { DOCKER_SLOW }) {
@@ -3642,13 +3655,16 @@ mod tests {
         let ps = "aaa\tweb-db-1\tpostgres:16\trunning\tUp 3 minutes\t0.0.0.0:5435->5432/tcp\tweb\tdb\tC:\\work\\acme\\web-app\n\
             bbb\tgone-db-1\tpostgres:16\trunning\tUp 1 hour\t\tgone\tdb\tC:\\work\\acme\\deleted\n\
             ccc\tgone-redis-1\tredis:8\texited\tExited (0) 1 hour ago\t\tgone\tredis\tC:\\work\\acme\\deleted\n";
-        Docker::Ready(containers::group(containers::parse_ps(ps), |dir| {
-            if dir.ends_with("web-app") {
-                Place::Here { checkout: dir.into() }
-            } else {
-                Place::Gone
-            }
-        }))
+        Docker::Ready {
+            projects: containers::group(containers::parse_ps(ps), |dir| {
+                if dir.ends_with("web-app") {
+                    Place::Here { checkout: dir.into() }
+                } else {
+                    Place::Gone
+                }
+            }),
+            engine: None,
+        }
     }
 
     #[test]
@@ -3706,6 +3722,49 @@ mod tests {
         key(&mut app, KeyCode::Char('x'));
         let refusals = &app.confirm.as_ref().unwrap().refusals;
         assert_eq!(refusals, &["gone-db-1 is protected by rule 'postgres'".to_string()]);
+    }
+
+    #[test]
+    fn container_confirmation_keeps_its_engine_when_a_refresh_switches_engines() {
+        use containers::Engine;
+
+        let mut app = app();
+        let (tx, rx) = mpsc::channel();
+        app.docker_tx = Some(tx);
+        let first = Engine::Context {
+            name: "first-engine".into(),
+            host: "unix:///first.sock".into(),
+        };
+        let second = Engine::Context {
+            name: "second-engine".into(),
+            host: "unix:///second.sock".into(),
+        };
+        let Docker::Ready { projects, .. } = docker_projects() else {
+            unreachable!()
+        };
+        app.apply_docker(DockerMsg::Read(Docker::Ready {
+            projects: projects.clone(),
+            engine: Some(first.clone()),
+        }));
+        key(&mut app, KeyCode::Char('5'));
+        assert!(screen(&mut app).contains("first-engine"));
+        app.docker_marked.insert("web".into());
+        key(&mut app, KeyCode::Char('x'));
+        assert!(app.confirm.as_ref().unwrap().title.contains("first-engine"));
+        app.apply_docker(DockerMsg::Read(Docker::Ready {
+            projects,
+            engine: Some(second),
+        }));
+        assert!(!app.docker_marked.contains("web"));
+        key(&mut app, KeyCode::Char('y'));
+        let sent = rx
+            .try_iter()
+            .find_map(|msg| match msg {
+                DockerCmd::Run(plan) => Some(plan),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(sent.engine, Some(first));
     }
 
     #[test]
